@@ -385,15 +385,17 @@ export default function App() {
   }, [addFrame, addFrameLoading]);
 
   const handlePurchase = useCallback(
+    
     async (pic: typeof PICTURES[number]) => {
       console.log("Purchase button clicked for:", pic.title);
-      
+      console.log("handlePurchase called for", pic);
+ 
       if (!isConnected || !connectedAddress) {
         alert("Please connect your wallet first using the button at the top right.");
         return;
       }
 
-      if (CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
+      if (CONTRACT_ADDRESS === "CONTRACT_ADDRESS") {
         alert("This is a demo. The contract is not deployed yet, but the purchase flow is working!");
         return;
       }
