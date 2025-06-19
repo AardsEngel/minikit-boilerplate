@@ -21,11 +21,10 @@ import {
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
-// Mock gallery data
 const PICTURES = [
   {
     id: "1",
-    src: "/pictures/pic1.jpg",
+    src: "/pictures/pic1.webp",
     title: "Sunset Overdrive",
     priceUSDC: 5,
   },
@@ -43,10 +42,10 @@ const PICTURES = [
   },
 ];
 
-// Purchase tracking using localStorage
 function usePurchaseTracking() {
   const [purchased, setPurchased] = useState<{[picId: string]: boolean}>({});
-  const storageKey = "purchased_pics_AardsEngel"; // Using provided username
+  const storageKey = "purchased_pics_AardsEngel";
+  const purchaseTimeKey = "purchase_time_AardsEngel";
 
   useEffect(() => {
     const stored = localStorage.getItem(storageKey);
@@ -59,6 +58,7 @@ function usePurchaseTracking() {
     const updated = { ...purchased, [picId]: true };
     setPurchased(updated);
     localStorage.setItem(storageKey, JSON.stringify(updated));
+    localStorage.setItem(purchaseTimeKey, "2025-06-19 12:10:03"); // Using provided UTC time
   };
 
   return { purchased, recordPurchase };
