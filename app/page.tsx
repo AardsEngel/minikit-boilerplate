@@ -40,11 +40,11 @@ const PICTURES = [
   },
   {
     id: "2",
-    tokenId: 1,
+    tokenId: 2,
     title: "Full Body",
     priceUSDC: 10,
-    previewIpfsHash: "QmPreviewHash2", // Replace with actual hash
-    fullIpfsHash: "QmFullHash2", // Replace with actual hash
+    previewIpfsHash: "bafkreidvjecoqtdml4utim66gswvbdonumn6ywwmduayhhkruievhsqz2i",
+    fullIpfsHash: "bafybeihyb2jqs3m4jbcpx3bbxaedeuj54nypp2p7ffysn36p6oz6ws3kdi", 
   },
 ];
 
