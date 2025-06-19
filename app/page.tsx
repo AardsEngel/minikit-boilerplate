@@ -17,9 +17,18 @@ import {
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
+import {
+  Transaction,
+  TransactionButton,
+  TransactionStatus,
+  TransactionStatusLabel,
+  TransactionStatusAction,
+} from '@coinbase/onchainkit/transaction';
+import type { LifecycleStatus } from '@coinbase/onchainkit/transaction';
 import { useAccount } from "wagmi";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
+
 
 /* ---------- CONTRACT CONSTANTS ---------- */
 const CONTRACT_ADDRESS = "0x219Db2A089dae44eE612E042a41Fc2473e8d318F";
@@ -381,92 +390,82 @@ export default function App() {
     }
   }, [addFrame, addFrameLoading]);
 
-  const handlePurchase = useCallback(
-  async (pic: typeof PICTURES[number]) => {
-    console.log("Purchase button clicked for:", pic.title);
+const createPurchaseCalls = useCallback(async (pic: typeof PICTURES[number]): Promise<Array<{
+  to: `0x${string}`;
+  data: `0x${string}`;
+  value: bigint;
+}>> => {
+  const usdcAmount = BigInt(pic.priceUSDC) * BigInt(1_000_000);
+  
+  return [
+    // Step 1: Approve USDC
+    {
+      to: USDC_ADDRESS as `0x${string}`,
+      data: await encodeFunctionCall(USDC_ABI, "approve", [CONTRACT_ADDRESS, usdcAmount.toString()]) as `0x${string}`,
+      value: BigInt(0),
+    },
+    // Step 2: Purchase photo
+    {
+      to: CONTRACT_ADDRESS as `0x${string}`,
+      data: await encodeFunctionCall(MARKETPLACE_ABI, "purchasePhoto", [pic.tokenId]) as `0x${string}`,
+      value: BigInt(0),
+    },
+  ];
+}, []);
 
-    if (!isConnected || !connectedAddress) {
-      alert("Please connect your wallet first using the button at the top right.");
-      return;
-    }
-
-    setBuying(pic.id);
-    setTxStatus(prev => ({ ...prev, [pic.id]: "Preparing transaction..." }));
-
-    try {
-      // Convert USDC amount (6 decimals for USDC)
-      const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
-      console.log("USDC amount:", usdcAmount);
-      
-      setTxStatus(prev => ({ ...prev, [pic.id]: "Sending transaction..." }));
-
-      // Check if we have the sendTransaction function from OnchainKit
-      if (!window.MiniKit?.sendTransaction) {
-        throw new Error("MiniKit sendTransaction not available");
-      }
-
-      // Use OnchainKit's MiniKit sendTransaction
-      const result = await window.MiniKit.sendTransaction({
-        transactions: [
-          // Step 1: Approve USDC
-          {
-            to: USDC_ADDRESS,
-            data: await encodeFunctionCall(USDC_ABI, "approve", [CONTRACT_ADDRESS, usdcAmount]),
-            value: "0x0",
-          },
-          // Step 2: Purchase photo
-          {
-            to: CONTRACT_ADDRESS,
-            data: await encodeFunctionCall(MARKETPLACE_ABI, "purchasePhoto", [pic.tokenId]),
-            value: "0x0",
-          },
-        ],
-      });
-
-      console.log("Transaction result:", result);
-
-      if (result.error) {
-        console.error('Error sending transaction', result.error);
-        throw new Error(result.error || 'Transaction failed');
-      } else {
-        console.log("Transaction sent successfully:", result.transactionHash);
-        setTxStatus(prev => ({ ...prev, [pic.id]: "Transaction sent! Waiting for confirmation..." }));
-        
-        // Refresh ownership after a delay
-        setTimeout(() => {
-          refetch();
-          setTxStatus(prev => {
-            const newStatus = { ...prev };
-            delete newStatus[pic.id];
-            return newStatus;
-          });
-        }, 10000);
-      }
-
-    } catch (error: unknown) {
-      console.error("Purchase failed:", error);
-      
-      let errorMessage = "Purchase failed. Please try again.";
-      
-      if (typeof error === "object" && error !== null) {
-        if ("message" in error && typeof error.message === "string") {
-          errorMessage = error.message;
-        }
-      }
-      
-      alert(errorMessage);
+const handleTransactionStatus = useCallback((status: LifecycleStatus, picId: string) => {
+  console.log('Transaction status:', status);
+  
+  switch (status.statusName) {
+    case 'transactionIdle':
+      setTxStatus(prev => ({ ...prev, [picId]: "Ready to purchase..." }));
+      break;
+    case 'buildingTransaction':
+      setTxStatus(prev => ({ ...prev, [picId]: "Preparing transaction..." }));
+      break;
+    case 'transactionPending':
+      setTxStatus(prev => ({ ...prev, [picId]: "Transaction pending..." }));
+      break;
+    case 'success':
+      setTxStatus(prev => ({ ...prev, [picId]: "Purchase successful!" }));
+      setTimeout(() => {
+        refetch(); // This is fine to use directly since it's in scope
+        setTxStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[picId];
+          return newStatus;
+        });
+        setBuying(null);
+      }, 2000);
+      break;
+    case 'error':
+      console.error('Transaction error:', status.statusData);
       setTxStatus(prev => {
         const newStatus = { ...prev };
-        delete newStatus[pic.id];
+        delete newStatus[picId];
         return newStatus;
       });
-    } finally {
       setBuying(null);
-    }
-  },
-  [isConnected, connectedAddress, refetch]
-);
+      break;
+  }
+}, [refetch])
 
+// Transaction success handler
+const handleTransactionSuccess = useCallback((response: unknown, picId: string) => {
+  console.log(`Transaction successful for ${picId}:`, response);
+  // The status handler will take care of the rest
+}, []);
+
+// Transaction error handler
+const handleTransactionError = useCallback((error: unknown, picId: string) => {
+  console.error(`Transaction failed for ${picId}:`, error);
+  let errorMessage = 'Unknown error';
+  if (error && typeof error === 'object' && 'message' in error) {
+    errorMessage = String(error.message);
+  }
+  alert(`Purchase failed for ${picId}: ${errorMessage}`);
+  setBuying(null);
+}, []);
 
   const isFrameAdded = useMemo(() => {
     return context?.client?.added ?? false;
@@ -560,51 +559,53 @@ export default function App() {
         <main className="flex-1 space-y-6">
           {/* Gallery Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {PICTURES.map((pic) => {
-              const isUnlocked = ownedPhotos[pic.id];
-              const isProcessing = buying === pic.id;
-              const status = txStatus[pic.id];
-              
-              // Determine which image to show
-              const imageHash = isUnlocked ? fullImageHashes[pic.id] : pic.previewIpfsHash;
+  {PICTURES.map((pic) => {
+    const isUnlocked = ownedPhotos[pic.id];
+    const isProcessing = buying === pic.id;
+    const status = txStatus[pic.id];
+    
+    // Determine which image to show
+    const imageHash = isUnlocked ? fullImageHashes[pic.id] : pic.previewIpfsHash;
 
-              // Enhanced button logic
-              let buttonText: string;
-              let buttonDisabled = false;
-              let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
+    // Enhanced button logic
+    let buttonText: string;
+    let buttonDisabled = false;
+    let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
 
-              if (!isConnected) {
-                buttonText = "Connect Wallet to Buy";
-                buttonDisabled = true;
-                buttonColor = "bg-gray-400";
-              } else if (isProcessing) {
-                buttonText = status || "Processing...";
-                buttonDisabled = true;
-                buttonColor = "bg-blue-500";
-              } else if (isUnlocked) {
-                buttonText = "✓ Purchased";
-                buttonDisabled = true;
-                buttonColor = "bg-green-500";
-              } else {
-                buttonText = `Buy for ${pic.priceUSDC} USDC`;
-              }
+    if (!isConnected) {
+      buttonText = "Connect Wallet to Buy";
+      buttonDisabled = true;
+      buttonColor = "bg-gray-400";
+    } else if (isProcessing) {
+      buttonText = status || "Processing...";
+      buttonDisabled = true;
+      buttonColor = "bg-blue-500";
+    } else if (isUnlocked) {
+      buttonText = "✓ Purchased";
+      buttonDisabled = true;
+      buttonColor = "bg-green-500";
+    } else {
+      buttonText = `Buy for ${pic.priceUSDC} USDC`;
+    }
 
-              return (
-                <PhotoCard
-                  key={pic.id}
-                  pic={pic}
-                  imageHash={imageHash}
-                  isUnlocked={isUnlocked}
-                  isProcessing={isProcessing}
-                  ownershipLoading={ownershipLoading}
-                  buttonText={buttonText}
-                  buttonDisabled={buttonDisabled}
-                  buttonColor={buttonColor}
-                  onPurchase={handlePurchase}
-                />
-              );
-            })}
-          </div>
+    return (
+      <PhotoCard
+  key={pic.id}
+  pic={pic}
+  imageHash={imageHash}
+  isUnlocked={isUnlocked}
+  ownershipLoading={ownershipLoading}
+  buttonText={buttonText}
+  buttonDisabled={buttonDisabled}
+  buttonColor={buttonColor}
+  createPurchaseCalls={createPurchaseCalls}
+  handleTransactionStatus={handleTransactionStatus}
+  handleTransactionSuccess={handleTransactionSuccess}
+  handleTransactionError={handleTransactionError}
+/>
+    );
+  })}
+</div>
 
           {/* Enhanced Status Card */}
           <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-6">
@@ -706,26 +707,36 @@ interface PhotoCardProps {
   pic: typeof PICTURES[number];
   imageHash: string | undefined;
   isUnlocked: boolean;
-  isProcessing: boolean;
   ownershipLoading: boolean;
   buttonText: string;
   buttonDisabled: boolean;
   buttonColor: string;
-  onPurchase: (pic: typeof PICTURES[number]) => void;
+  createPurchaseCalls: (pic: typeof PICTURES[number]) => Promise<Array<{
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: bigint;
+  }>>;
+  handleTransactionStatus: (status: LifecycleStatus, picId: string) => void;
+  handleTransactionSuccess: (response: unknown, picId: string) => void;
+  handleTransactionError: (error: unknown, picId: string) => void;
 }
 
+// Updated PhotoCard component
 function PhotoCard({
   pic,
   imageHash,
   isUnlocked,
-  isProcessing,
   ownershipLoading,
   buttonText,
   buttonDisabled,
   buttonColor,
-  onPurchase,
+  createPurchaseCalls,
+  handleTransactionStatus,
+  handleTransactionSuccess,
+  handleTransactionError,
 }: PhotoCardProps) {
   const { imageUrl, loading: imageLoading, error: imageError } = useIPFSImage(imageHash ?? null);
+  const { isConnected } = useAccount();
 
   return (
     <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4 transition-all duration-300 hover:shadow-xl">
@@ -754,6 +765,8 @@ function PhotoCard({
             className={`rounded-lg object-cover transition-all duration-500 ${
               isUnlocked ? "" : "blur-sm brightness-75"
             }`}
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         ) : (
           <div className="w-full h-full rounded-lg bg-gray-200 flex items-center justify-center">
@@ -798,18 +811,41 @@ function PhotoCard({
           </div>
         )}
         
-        <button
-          onClick={() => onPurchase(pic)}
-          disabled={buttonDisabled}
-          className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
-            buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
-          }`}
-        >
-          {isProcessing && (
-            <div className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-          )}
-          {buttonText}
-        </button>
+        {/* Replace the button with Transaction component */}
+        {isUnlocked ? (
+          <button
+            disabled
+            className="w-full px-4 py-2 text-white rounded-lg font-medium bg-green-500 opacity-50 cursor-not-allowed"
+          >
+            ✓ Purchased
+          </button>
+        ) : !isConnected ? (
+          <button
+            disabled
+            className="w-full px-4 py-2 text-white rounded-lg font-medium bg-gray-400 opacity-50 cursor-not-allowed"
+          >
+            Connect Wallet to Buy
+          </button>
+        ) : (
+          <Transaction
+            calls={async () => await createPurchaseCalls(pic)}
+            onStatus={(status) => handleTransactionStatus(status, pic.id)}
+            onSuccess={(response) => handleTransactionSuccess(response, pic.id)}
+            onError={(error) => handleTransactionError(error, pic.id)}
+          >
+            <TransactionButton
+              className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
+                buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
+              }`}
+              text={buttonText}
+              disabled={buttonDisabled}
+            />
+            <TransactionStatus>
+              <TransactionStatusLabel />
+              <TransactionStatusAction />
+            </TransactionStatus>
+          </Transaction>
+        )}
       </div>
     </div>
   );
