@@ -17,6 +17,7 @@ import {
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
+import { useAccount } from "wagmi"; // Add this import
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
@@ -124,8 +125,6 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
-/* ------- Improved MiniKit Context Types ------- */
-
 /* ------- HOOK: Onchain Ownership ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
@@ -193,59 +192,6 @@ function usePhotoOwnership(userAddress: string | undefined) {
   return { ownedPhotos, loading };
 }
 
-/* ------- HOOK: Enhanced connected address detection ------- */
-function useConnectedAddress() {
-  const [connectedAddress, setConnectedAddress] = useState<string | undefined>(undefined);
-  const [isConnected, setIsConnected] = useState(false);
-
-  useEffect(() => {
-    // Check if wallet is connected via ethereum provider
-    const checkConnection = async () => {
-      if (typeof window !== "undefined" && window.ethereum) {
-        try {
-          const accounts = await window.ethereum.request({ method: "eth_accounts" });
-          if (accounts && accounts.length > 0) {
-            setConnectedAddress(accounts[0]);
-            setIsConnected(true);
-          } else {
-            setConnectedAddress(undefined);
-            setIsConnected(false);
-          }
-        } catch (error) {
-          console.log("Error checking wallet connection:", error);
-          setConnectedAddress(undefined);
-          setIsConnected(false);
-        }
-      }
-    };
-
-    checkConnection();
-
-    // Listen for account changes
-    if (typeof window !== "undefined" && window.ethereum) {
-      const handleAccountsChanged = (accounts: string[]) => {
-        if (accounts.length > 0) {
-          setConnectedAddress(accounts[0]);
-          setIsConnected(true);
-        } else {
-          setConnectedAddress(undefined);
-          setIsConnected(false);
-        }
-      };
-
-      window.ethereum.on("accountsChanged", handleAccountsChanged);
-      
-      return () => {
-        if (window.ethereum.removeListener) {
-          window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
-        }
-      };
-    }
-  }, []);
-
-  return { connectedAddress, isConnected };
-}
-
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
@@ -254,8 +200,9 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Enhanced wallet connection detection
-  const { connectedAddress, isConnected } = useConnectedAddress();
+  // Use wagmi's useAccount hook instead of custom hook
+  const { address: connectedAddress, isConnected } = useAccount();
+  
   const { ownedPhotos, loading: ownershipLoading } = usePhotoOwnership(connectedAddress);
   const [buying, setBuying] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<Record<string, string>>({});
@@ -602,6 +549,16 @@ export default function App() {
                 </div>
               </div>
             </div>
+            
+            {/* Debug info - remove in production */}
+            {isConnected && connectedAddress && (
+              <div className="mt-4 pt-4 border-t border-[var(--app-card-border)]">
+                <div className="text-xs text-[var(--app-foreground-muted)]">
+                  <div>Connected Address: {connectedAddress}</div>
+                  <div>Connection Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
+                </div>
+              </div>
+            )}
           </div>
         </main>
 
