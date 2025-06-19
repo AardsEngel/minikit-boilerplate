@@ -49,7 +49,7 @@ const PICTURES = [
   },
 ];
 
-// --------- ABI ENCODING HELPERS -----------
+// --------- ABI ENCODING HELPERS ----------
 type AbiInput = { name: string; type: string };
 type AbiFunction = {
   name: string;
@@ -124,8 +124,8 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
-/* --------- USER ADDRESS HELPER (NO ANY) --------- */
-function useUserAddress(context: unknown): string | undefined {
+/* --------- USER ADDRESS HOOK FROM MINIKIT CLIENT --------- */
+function useMiniKitAddress(context: unknown): string | undefined {
   // Try multiple possible MiniKit shapes (covers most versions)
   if (
     context &&
@@ -157,10 +157,6 @@ function useUserAddress(context: unknown): string | undefined {
     ((context as { address?: string }).address?.length ?? 0) === 42
   ) {
     return (context as { address: string }).address;
-  }
-  // Fallback: window.ethereum.selectedAddress
-  if (typeof window !== "undefined" && window.ethereum && typeof window.ethereum.selectedAddress === "string") {
-    return window.ethereum.selectedAddress;
   }
   return undefined;
 }
@@ -210,7 +206,8 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  const userAddress = useUserAddress(context);
+  // Get user address from MiniKit context
+  const userAddress = useMiniKitAddress(context);
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
@@ -218,23 +215,12 @@ export default function App() {
     if (!isFrameReady) setFrameReady();
   }, [setFrameReady, isFrameReady]);
 
-  // Debug: show context and derived address
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log("MiniKit context:", context);
-    // eslint-disable-next-line no-console
-    console.log("Resolved userAddress:", userAddress);
-    // eslint-disable-next-line no-console
-    if (typeof window !== "undefined" && window.ethereum) {
-      console.log("window.ethereum.selectedAddress:", window.ethereum.selectedAddress);
-    }
-  }, [context, userAddress]);
-
   const handleAddFrame = useCallback(async () => {
     const frameAdded = await addFrame();
     setFrameAdded(Boolean(frameAdded));
   }, [addFrame]);
 
+  // USDC approval + contract purchase with window.ethereum.request
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
       if (!userAddress || typeof window === "undefined" || !window.ethereum) {
@@ -277,6 +263,8 @@ export default function App() {
             },
           ],
         });
+
+        // Ownership will update on next render
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error(e);
@@ -322,17 +310,6 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen font-sans text-[var(--app-foreground)] bg-gradient-to-b from-[var(--app-background)] to-[var(--app-gray)]">
       <div className="w-full max-w-2xl mx-auto px-4 py-3">
-        {/* Debug panel */}
-        <details style={{ background: "#222", color: "#fff", marginBottom: 8, padding: 8 }}>
-          <summary>Debug: MiniKit context & address</summary>
-          <pre style={{ fontSize: 12, overflowX: "auto" }}>
-            {JSON.stringify(context, null, 2)}
-          </pre>
-          <div>userAddress: {userAddress ?? "undefined"}</div>
-          {typeof window !== "undefined" && window.ethereum && (
-            <div>window.ethereum.selectedAddress: {window.ethereum.selectedAddress}</div>
-          )}
-        </details>
         {/* Header */}
         <header className="flex justify-between items-center mb-6 h-11">
           <div>
