@@ -125,6 +125,23 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
+/* --------- USER ADDRESS HELPER (NO ANY) --------- */
+function useUserAddress(context: unknown): string | undefined {
+  if (
+    context &&
+    typeof context === "object" &&
+    "client" in context &&
+    (context as { client?: unknown }).client &&
+    typeof (context as { client: unknown }).client === "object" &&
+    "address" in (context as { client: { address?: unknown } }).client &&
+    typeof (context as { client: { address?: unknown } }).client.address === "string" &&
+    (context as { client: { address: string } }).client.address
+  ) {
+    return (context as { client: { address: string } }).client.address;
+  }
+  return undefined;
+}
+
 /* ------- HOOK: Onchain Ownership (NO ANY) ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
@@ -135,7 +152,6 @@ function usePhotoOwnership(userAddress: string | undefined) {
     (async () => {
       const owned: Record<string, boolean> = {};
       for (const pic of PICTURES) {
-        // Encode ownerOf
         const data = await encodeFunctionCall(MARKETPLACE_ABI, "ownerOf", [pic.tokenId]);
         try {
           const res: string = await window.ethereum.request({
@@ -171,9 +187,8 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // User address from context (MiniKit)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userAddress: string | undefined = (context?.client as { address?: string })?.address;
+  // Get user address from context
+  const userAddress = useUserAddress(context);
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
@@ -242,8 +257,12 @@ export default function App() {
   );
 
   const saveFrameButton = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (context && !(context as { client: { added?: boolean } }).client.added) {
+    if (
+      context &&
+      "client" in context &&
+      (context as { client?: { added?: boolean } }).client &&
+      !(context as { client: { added?: boolean } }).client.added
+    ) {
       return (
         <button
           onClick={handleAddFrame}
@@ -365,12 +384,18 @@ export default function App() {
                 </span>
                 <span
                   className={`font-medium ${
-                    ((context as { client: { added?: boolean } })?.client?.added)
+                    (context &&
+                      "client" in context &&
+                      (context as { client?: { added?: boolean } }).client &&
+                      (context as { client: { added?: boolean } }).client.added)
                       ? "text-green-600"
                       : "text-gray-500"
                   }`}
                 >
-                  {((context as { client: { added?: boolean } })?.client?.added)
+                  {(context &&
+                    "client" in context &&
+                    (context as { client?: { added?: boolean } }).client &&
+                    (context as { client: { added?: boolean } }).client.added)
                     ? "✓ Added"
                     : "○ Not Added"}
                 </span>
