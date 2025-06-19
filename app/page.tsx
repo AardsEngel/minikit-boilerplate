@@ -265,12 +265,6 @@ function usePhotoOwnership(userAddress: string | undefined) {
       return;
     }
 
-    // Skip if using demo contract
-    if (CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
-      console.log("Using demo contract - skipping ownership check");
-      return;
-    }
-
     setLoading(true);
     const owned: Record<string, boolean> = {};
     const fullHashes: Record<string, string> = {};
@@ -392,11 +386,6 @@ export default function App() {
  
       if (!isConnected || !connectedAddress) {
         alert("Please connect your wallet first using the button at the top right.");
-        return;
-      }
-
-      if (CONTRACT_ADDRESS === "CONTRACT_ADDRESS") {
-        alert("This is a demo. The contract is not deployed yet, but the purchase flow is working!");
         return;
       }
 
@@ -716,10 +705,8 @@ export default function App() {
                 
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--app-foreground-muted)]">Contract:</span>
-                  <span className={`font-medium text-xs ${
-                    CONTRACT_ADDRESS !== "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ? "text-green-600" : "text-orange-600"
-                  }`}>
-                    {CONTRACT_ADDRESS !== "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ? "Deployed" : "Demo Mode"}
+                  <span className="font-medium text-xs text-green-600">
+                    {CONTRACT_ADDRESS ? "Deployed" : "Not set"}
                   </span>
                 </div>
               </div>
