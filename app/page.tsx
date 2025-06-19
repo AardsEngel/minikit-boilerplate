@@ -126,7 +126,6 @@ async function encodeFunctionCall(
 
 /* --------- USER ADDRESS HOOK FROM MINIKIT CLIENT --------- */
 function useMiniKitAddress(context: unknown): string | undefined {
-  // Try multiple possible MiniKit shapes (covers most versions)
   if (
     context &&
     typeof context === "object" &&
@@ -135,20 +134,16 @@ function useMiniKitAddress(context: unknown): string | undefined {
     typeof (context as { client: unknown }).client === "object"
   ) {
     const client = (context as { client: Record<string, unknown> }).client;
-    // Try .address directly
     if (typeof client.address === "string" && client.address.length === 42) {
       return client.address;
     }
-    // Sometimes available as .selectedAddress
     if (typeof client.selectedAddress === "string" && client.selectedAddress.length === 42) {
       return client.selectedAddress;
     }
-    // Sometimes available as .accounts[0]
     if (Array.isArray(client.accounts) && client.accounts.length > 0 && typeof client.accounts[0] === "string") {
       return client.accounts[0];
     }
   }
-  // Some older versions: context.address directly
   if (
     context &&
     typeof context === "object" &&
@@ -183,7 +178,6 @@ function usePhotoOwnership(userAddress: string | undefined) {
               "latest",
             ],
           });
-          // Address is last 40 chars
           const owner = "0x" + res.slice(-40);
           owned[pic.id] = owner.toLowerCase() === userAddress.toLowerCase();
         } catch {
@@ -206,7 +200,6 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Get user address from MiniKit context
   const userAddress = useMiniKitAddress(context);
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
@@ -224,13 +217,12 @@ export default function App() {
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
       if (!userAddress || typeof window === "undefined" || !window.ethereum) {
-        alert("Connect wallet first.");
+        alert("Please connect your wallet first using the button at the top right.");
         return;
       }
       setBuying(pic.id);
 
       try {
-        // 1. Approve USDC (6 decimals)
         const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
         const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
           CONTRACT_ADDRESS,
@@ -247,7 +239,6 @@ export default function App() {
           ],
         });
 
-        // 2. Purchase NFT
         const purchaseData = await encodeFunctionCall(
           MARKETPLACE_ABI,
           "purchasePhoto",
@@ -263,8 +254,6 @@ export default function App() {
             },
           ],
         });
-
-        // Ownership will update on next render
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error(e);
@@ -363,15 +352,16 @@ export default function App() {
                   {isUnlocked ? (
                     <div className="text-green-500 font-medium">✓ Purchased</div>
                   ) : (
-                   <button
-  onClick={() => handlePurchase(pic)}
-  disabled={buying === pic.id}
-  className={`...`}
->
-  {buying === pic.id
-    ? "Processing..."
-    : `Buy for ${pic.priceUSDC} USDC`}
-</button>
+                    <button
+                      onClick={() => handlePurchase(pic)}
+                      disabled={buying === pic.id}
+                      className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
+                        ${buying === pic.id ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-accent-hover)]"}`}
+                    >
+                      {buying === pic.id
+                        ? "Processing..."
+                        : `Buy for ${pic.priceUSDC} USDC`}
+                    </button>
                   )}
                 </div>
               );
