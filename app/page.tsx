@@ -49,7 +49,7 @@ const PICTURES = [
   },
 ];
 
-// --------- ABI ENCODING HELPERS (NO ANY) -----------
+// --------- ABI ENCODING HELPERS -----------
 type AbiInput = { name: string; type: string };
 type AbiFunction = {
   name: string;
@@ -115,7 +115,6 @@ async function encodeFunctionCall(
   for (let i = 0; i < fn.inputs.length; i++) {
     let val = params[i];
     if (fn.inputs[i].type === "uint256") {
-      // BigInt for safety, output hex
       val = BigInt(val).toString(16);
       encodedArgs += val.padStart(64, "0");
     } else if (fn.inputs[i].type === "address") {
@@ -127,17 +126,37 @@ async function encodeFunctionCall(
 
 /* --------- USER ADDRESS HELPER (NO ANY) --------- */
 function useUserAddress(context: unknown): string | undefined {
+  // Try multiple possible MiniKit shapes (covers most versions)
   if (
     context &&
     typeof context === "object" &&
     "client" in context &&
     (context as { client?: unknown }).client &&
-    typeof (context as { client: unknown }).client === "object" &&
-    "address" in (context as { client: { address?: unknown } }).client &&
-    typeof (context as { client: { address?: unknown } }).client.address === "string" &&
-    (context as { client: { address: string } }).client.address
+    typeof (context as { client: unknown }).client === "object"
   ) {
-    return (context as { client: { address: string } }).client.address;
+    const client = (context as { client: Record<string, unknown> }).client;
+    // Try .address directly
+    if (typeof client.address === "string" && client.address.length === 42) {
+      return client.address;
+    }
+    // Sometimes available as .selectedAddress
+    if (typeof client.selectedAddress === "string" && client.selectedAddress.length === 42) {
+      return client.selectedAddress;
+    }
+    // Sometimes available as .accounts[0]
+    if (Array.isArray(client.accounts) && client.accounts.length > 0 && typeof client.accounts[0] === "string") {
+      return client.accounts[0];
+    }
+  }
+  // Some older versions: context.address directly
+  if (
+    context &&
+    typeof context === "object" &&
+    "address" in context &&
+    typeof (context as { address?: unknown }).address === "string" &&
+    ((context as { address?: string }).address?.length ?? 0) === 42
+  ) {
+    return (context as { address: string }).address;
   }
   return undefined;
 }
@@ -187,7 +206,7 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Get user address from context
+  // Get user address from context (robustly)
   const userAddress = useUserAddress(context);
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
