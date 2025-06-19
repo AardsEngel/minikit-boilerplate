@@ -17,7 +17,7 @@ import {
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
-import { useAccount } from "wagmi"; // Add this import
+import { useAccount } from "wagmi";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
@@ -25,20 +25,30 @@ import Image from "next/image";
 const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
+// IPFS Gateway - you can use any IPFS gateway
+const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
+// Alternative gateways:
+// const IPFS_GATEWAY = "https://ipfs.io/ipfs/";
+// const IPFS_GATEWAY = "https://cloudflare-ipfs.com/ipfs/";
+
+// Photo data now contains IPFS hashes instead of local paths
 const PICTURES = [
   {
     id: "1",
     tokenId: 0,
-    src: "/pictures/Boobs.png",
     title: "Boobs",
     priceUSDC: 5,
+    // These are example IPFS hashes - replace with your actual hashes
+    previewIpfsHash: "QmPreviewHash1", // Blurred/low-res version
+    fullIpfsHash: "QmFullHash1", // Full resolution version
   },
   {
     id: "2",
     tokenId: 1,
-    src: "/pictures/Full.png",
     title: "Full Body",
     priceUSDC: 10,
+    previewIpfsHash: "QmPreviewHash2",
+    fullIpfsHash: "QmFullHash2",
   },
 ];
 
@@ -58,10 +68,36 @@ const MARKETPLACE_ABI: AbiFunction[] = [
     inputs: [{ name: "_tokenId", type: "uint256" }],
   },
   {
-    name: "ownerOf",
+    name: "userOwnsPhoto",
     type: "function",
-    inputs: [{ name: "tokenId", type: "uint256" }],
-    outputs: [{ type: "address" }],
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "_tokenId", type: "uint256" }
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    name: "getFullImageHash",
+    type: "function",
+    inputs: [{ name: "_tokenId", type: "uint256" }],
+    outputs: [{ type: "string" }],
+  },
+  {
+    name: "getPreviewImageHash",
+    type: "function",
+    inputs: [{ name: "_tokenId", type: "uint256" }],
+    outputs: [{ type: "string" }],
+  },
+  {
+    name: "getPhotoDetails",
+    type: "function",
+    inputs: [{ name: "_tokenId", type: "uint256" }],
+    outputs: [
+      { type: "string" }, // previewHash
+      { type: "uint256" }, // priceUSDC
+      { type: "bool" }, // isActive
+      { type: "bool" } // isPurchased
+    ],
   },
 ];
 
@@ -118,9 +154,95 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
+// Decode boolean from contract response
+function decodeBool(response: string): boolean {
+  return response.slice(-1) === "1";
+}
+
+// Decode string from contract response
+function decodeString(response: string): string {
+  if (!response || response.length < 2) return "";
+  
+  // Remove 0x prefix
+  const hex = response.slice(2);
+  
+  // Skip the first 64 characters (offset)
+  // Next 64 characters contain the length
+  const lengthHex = hex.slice(64, 128);
+  const length = parseInt(lengthHex, 16) * 2; // Convert to bytes then to hex chars
+  
+  // Extract the actual string data
+  const stringHex = hex.slice(128, 128 + length);
+  
+  // Convert hex to string
+  let result = "";
+  for (let i = 0; i < stringHex.length; i += 2) {
+    const byte = stringHex.substr(i, 2);
+    if (byte !== "00") { // Skip null bytes
+      result += String.fromCharCode(parseInt(byte, 16));
+    }
+  }
+  
+  return result;
+}
+
+/* ------- HOOK: IPFS Image Loader ------- */
+function useIPFSImage(ipfsHash: string | null) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ipfsHash) {
+      setImageUrl(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    // Try multiple IPFS gateways for better reliability
+    const gateways = [
+      "https://gateway.pinata.cloud/ipfs/",
+      "https://ipfs.io/ipfs/",
+      "https://cloudflare-ipfs.com/ipfs/",
+    ];
+
+    let currentGatewayIndex = 0;
+
+    const tryLoadImage = () => {
+      if (currentGatewayIndex >= gateways.length) {
+        setError("Failed to load image from all IPFS gateways");
+        setLoading(false);
+        return;
+      }
+
+      const url = `${gateways[currentGatewayIndex]}${ipfsHash}`;
+      const img = new window.Image();
+      
+      img.onload = () => {
+        setImageUrl(url);
+        setLoading(false);
+      };
+      
+      img.onerror = () => {
+        currentGatewayIndex++;
+        tryLoadImage();
+      };
+      
+      img.src = url;
+    };
+
+    tryLoadImage();
+  }, [ipfsHash]);
+
+  return { imageUrl, loading, error };
+}
+
 /* ------- HOOK: Onchain Ownership ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
+  const [fullImageHashes, setFullImageHashes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -132,6 +254,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
       !window.ethereum
     ) {
       setOwnedPhotos({});
+      setFullImageHashes({});
       return;
     }
 
@@ -140,24 +263,58 @@ function usePhotoOwnership(userAddress: string | undefined) {
 
     (async () => {
       const owned: Record<string, boolean> = {};
+      const fullHashes: Record<string, string> = {};
       
       try {
         for (const pic of PICTURES) {
-          const data = await encodeFunctionCall(MARKETPLACE_ABI, "ownerOf", [pic.tokenId]);
+          // Check ownership
+          const ownershipData = await encodeFunctionCall(
+            MARKETPLACE_ABI, 
+            "userOwnsPhoto", 
+            [userAddress, pic.tokenId]
+          );
           
           try {
-            const res: string = await window.ethereum.request({
+            const ownershipRes: string = await window.ethereum.request({
               method: "eth_call",
               params: [
                 {
                   to: CONTRACT_ADDRESS,
-                  data,
+                  data: ownershipData,
                 },
                 "latest",
               ],
             });
-            const owner = "0x" + res.slice(-40);
-            owned[pic.id] = owner.toLowerCase() === userAddress.toLowerCase();
+            
+            const isOwned = decodeBool(ownershipRes);
+            owned[pic.id] = isOwned;
+            
+            // If owned, get the full image hash
+            if (isOwned) {
+              try {
+                const fullHashData = await encodeFunctionCall(
+                  MARKETPLACE_ABI,
+                  "getFullImageHash",
+                  [pic.tokenId]
+                );
+                
+                const fullHashRes: string = await window.ethereum.request({
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: CONTRACT_ADDRESS,
+                      data: fullHashData,
+                    },
+                    "latest",
+                  ],
+                });
+                
+                const fullHash = decodeString(fullHashRes);
+                fullHashes[pic.id] = fullHash;
+              } catch (error) {
+                console.log(`Could not get full hash for ${pic.title}:`, error);
+              }
+            }
           } catch (error) {
             console.log(`Could not check ownership for ${pic.title}:`, error);
             owned[pic.id] = false;
@@ -165,7 +322,6 @@ function usePhotoOwnership(userAddress: string | undefined) {
         }
       } catch (error) {
         console.log("Error checking ownership:", error);
-        // Initialize all as false if there's an error
         PICTURES.forEach(pic => {
           owned[pic.id] = false;
         });
@@ -173,6 +329,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
 
       if (!cancelled) {
         setOwnedPhotos(owned);
+        setFullImageHashes(fullHashes);
         setLoading(false);
       }
     })();
@@ -182,7 +339,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
     };
   }, [userAddress]);
 
-  return { ownedPhotos, loading };
+  return { ownedPhotos, fullImageHashes, loading };
 }
 
 /* ---------------- MAIN COMPONENT ---------------- */
@@ -193,10 +350,9 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Use wagmi's useAccount hook instead of custom hook
   const { address: connectedAddress, isConnected } = useAccount();
   
-  const { ownedPhotos, loading: ownershipLoading } = usePhotoOwnership(connectedAddress);
+  const { ownedPhotos, fullImageHashes, loading: ownershipLoading } = usePhotoOwnership(connectedAddress);
   const [buying, setBuying] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<Record<string, string>>({});
 
@@ -282,7 +438,7 @@ export default function App() {
 
         setTxStatus({ ...txStatus, [pic.id]: "Purchase successful!" });
         
-        // Simulate success for demo
+        // Clear success message after 3 seconds
         setTimeout(() => {
           setTxStatus(prev => {
             const newStatus = { ...prev };
@@ -391,6 +547,9 @@ export default function App() {
               const isUnlocked = ownedPhotos[pic.id];
               const isProcessing = buying === pic.id;
               const status = txStatus[pic.id];
+              
+              // Determine which image to show
+              const imageHash = isUnlocked ? fullImageHashes[pic.id] : pic.previewIpfsHash;
 
               // Enhanced button logic
               let buttonText: string;
@@ -414,50 +573,18 @@ export default function App() {
               }
 
               return (
-                <div
+                <PhotoCard
                   key={pic.id}
-                  className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4 transition-all duration-300 hover:shadow-xl"
-                >
-                  <div className="relative aspect-square mb-4">
-                    <Image
-                      src={pic.src}
-                      alt={pic.title}
-                      fill
-                      className={`rounded-lg object-cover transition-all duration-500 ${
-                        isUnlocked ? "" : "blur-lg brightness-50"
-                      }`}
-                    />
-                    {!isUnlocked && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm">
-                          🔒 Locked
-                        </div>
-                      </div>
-                    )}
-                    {ownershipLoading && isConnected && (
-                      <div className="absolute top-2 right-2">
-                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold">{pic.title}</h3>
-                    
-                    <button
-                      onClick={() => handlePurchase(pic)}
-                      disabled={buttonDisabled}
-                      className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
-                        buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
-                      }`}
-                    >
-                      {isProcessing && (
-                        <div className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      )}
-                      {buttonText}
-                    </button>
-                  </div>
-                </div>
+                  pic={pic}
+                  imageHash={imageHash}
+                  isUnlocked={isUnlocked}
+                  isProcessing={isProcessing}
+                  ownershipLoading={ownershipLoading}
+                  buttonText={buttonText}
+                  buttonDisabled={buttonDisabled}
+                  buttonColor={buttonColor}
+                  onPurchase={handlePurchase}
+                />
               );
             })}
           </div>
@@ -549,6 +676,7 @@ export default function App() {
                 <div className="text-xs text-[var(--app-foreground-muted)]">
                   <div>Connected Address: {connectedAddress}</div>
                   <div>Connection Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
+                  <div>IPFS Gateway: {IPFS_GATEWAY}</div>
                 </div>
               </div>
             )}
@@ -564,6 +692,121 @@ export default function App() {
             Built with MiniKit on Base
           </button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- PHOTO CARD COMPONENT ---------------- */
+interface PhotoCardProps {
+  pic: typeof PICTURES[number];
+  imageHash: string | undefined;
+  isUnlocked: boolean;
+  isProcessing: boolean;
+  ownershipLoading: boolean;
+  buttonText: string;
+  buttonDisabled: boolean;
+  buttonColor: string;
+  onPurchase: (pic: typeof PICTURES[number]) => void;
+}
+
+function PhotoCard({
+  pic,
+  imageHash,
+  isUnlocked,
+  isProcessing,
+  ownershipLoading,
+  buttonText,
+  buttonDisabled,
+  buttonColor,
+  onPurchase,
+}: PhotoCardProps) {
+  const { imageUrl, loading: imageLoading, error: imageError } = useIPFSImage(imageHash ?? null);
+
+  return (
+    <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4 transition-all duration-300 hover:shadow-xl">
+      <div className="relative aspect-square mb-4">
+        {imageLoading ? (
+          <div className="w-full h-full rounded-lg bg-gray-200 flex items-center justify-center">
+            <div className="flex flex-col items-center space-y-2">
+              <div className="w-8 h-8 border-2 border-[var(--app-accent)] border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-sm text-[var(--app-foreground-muted)]">Loading from IPFS...</span>
+            </div>
+          </div>
+        ) : imageError ? (
+          <div className="w-full h-full rounded-lg bg-red-100 flex items-center justify-center">
+            <div className="flex flex-col items-center space-y-2 text-center p-4">
+              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm text-red-600">Failed to load image</span>
+              <span className="text-xs text-red-500">IPFS connection error</span>
+            </div>
+          </div>
+        ) : imageUrl ? (
+          <Image
+            src={imageUrl}
+            alt={pic.title}
+            fill
+            className={`rounded-lg object-cover transition-all duration-500 ${
+              isUnlocked ? "" : "blur-sm brightness-75"
+            }`}
+          />
+        ) : (
+          <div className="w-full h-full rounded-lg bg-gray-200 flex items-center justify-center">
+            <span className="text-sm text-[var(--app-foreground-muted)]">No image</span>
+          </div>
+        )}
+        
+        {!isUnlocked && imageUrl && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm">
+              🔒 Preview Only
+            </div>
+          </div>
+        )}
+        
+        {ownershipLoading && (
+          <div className="absolute top-2 right-2">
+            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+        
+        {isUnlocked && (
+          <div className="absolute top-2 left-2">
+            <div className="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
+              ✓ Owned
+            </div>
+          </div>
+        )}
+      </div>
+      
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold">{pic.title}</h3>
+          <div className="text-xs text-[var(--app-foreground-muted)]">
+            Token #{pic.tokenId}
+          </div>
+        </div>
+        
+        {imageHash && (
+          <div className="text-xs text-[var(--app-foreground-muted)] font-mono">
+            IPFS: {imageHash.slice(0, 12)}...{imageHash.slice(-8)}
+          </div>
+        )}
+        
+        <button
+          onClick={() => onPurchase(pic)}
+          disabled={buttonDisabled}
+          className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
+            buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
+          }`}
+        >
+          {isProcessing && (
+            <div className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+          )}
+          {buttonText}
+        </button>
       </div>
     </div>
   );
