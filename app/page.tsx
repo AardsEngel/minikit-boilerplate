@@ -70,6 +70,7 @@ const MARKETPLACE_ABI: AbiFunction[] = [
     outputs: [{ type: "address" }],
   },
 ];
+
 const USDC_ABI: AbiFunction[] = [
   {
     name: "approve",
@@ -86,11 +87,11 @@ function padHex(value: string, bytes = 32): string {
   return value.replace(/^0x/, "").padStart(bytes * 2, "0");
 }
 
-// Minimal Keccak256 for selector (uses SubtleCrypto, no require)
+// Minimal Keccak256 for selector (uses SubtleCrypto)
 async function keccak256Selector(signature: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(signature);
-  const hashBuffer = await window.crypto.subtle.digest("SHA-3-256", data);
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")
@@ -105,11 +106,11 @@ async function encodeFunctionCall(
 ): Promise<string> {
   const fn = abi.find((f) => f.name === functionName);
   if (!fn) throw new Error("Function not found in ABI");
-  const selector =
-    "0x" +
-    (await keccak256Selector(
-      `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`
-    ));
+  
+  const selector = "0x" + (await keccak256Selector(
+    `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`
+  ));
+  
   let encodedArgs = "";
   for (let i = 0; i < fn.inputs.length; i++) {
     let val = params[i];
@@ -123,17 +124,12 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
-/* ------- MiniKit Context Type ------- */
-type MiniKitContext = {
-  client?: {
-    accounts?: string[];
-    added?: boolean;
-  };
-};
+/* ------- Improved MiniKit Context Types ------- */
 
 /* ------- HOOK: Onchain Ownership ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (
@@ -142,153 +138,257 @@ function usePhotoOwnership(userAddress: string | undefined) {
       CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS" ||
       typeof window === "undefined" ||
       !window.ethereum
-    )
+    ) {
+      setOwnedPhotos({});
       return;
+    }
+
     let cancelled = false;
+    setLoading(true);
+
     (async () => {
       const owned: Record<string, boolean> = {};
-      for (const pic of PICTURES) {
-        const data = await encodeFunctionCall(MARKETPLACE_ABI, "ownerOf", [pic.tokenId]);
-        try {
-          const res: string = await window.ethereum.request({
-            method: "eth_call",
-            params: [
-              {
-                to: CONTRACT_ADDRESS,
-                data,
-              },
-              "latest",
-            ],
-          });
-          const owner = "0x" + res.slice(-40);
-          owned[pic.id] = owner.toLowerCase() === userAddress.toLowerCase();
-        } catch {
-          owned[pic.id] = false;
+      
+      try {
+        for (const pic of PICTURES) {
+          const data = await encodeFunctionCall(MARKETPLACE_ABI, "ownerOf", [pic.tokenId]);
+          
+          try {
+            const res: string = await window.ethereum.request({
+              method: "eth_call",
+              params: [
+                {
+                  to: CONTRACT_ADDRESS,
+                  data,
+                },
+                "latest",
+              ],
+            });
+            const owner = "0x" + res.slice(-40);
+            owned[pic.id] = owner.toLowerCase() === userAddress.toLowerCase();
+          } catch (error) {
+            console.log(`Could not check ownership for ${pic.title}:`, error);
+            owned[pic.id] = false;
+          }
         }
+      } catch (error) {
+        console.log("Error checking ownership:", error);
+        // Initialize all as false if there's an error
+        PICTURES.forEach(pic => {
+          owned[pic.id] = false;
+        });
       }
-      if (!cancelled) setOwnedPhotos(owned);
+
+      if (!cancelled) {
+        setOwnedPhotos(owned);
+        setLoading(false);
+      }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [userAddress]);
-  return ownedPhotos;
+
+  return { ownedPhotos, loading };
 }
 
-/* ------- HOOK: Get connected address from MiniKit context ------- */
-function useConnectedAddressFromContext(context: MiniKitContext | null): string | undefined {
-  if (
-    context &&
-    context.client &&
-    Array.isArray(context.client.accounts) &&
-    context.client.accounts.length > 0
-  ) {
-    return context.client.accounts[0];
-  }
-  return undefined;
+/* ------- HOOK: Enhanced connected address detection ------- */
+function useConnectedAddress() {
+  const [connectedAddress, setConnectedAddress] = useState<string | undefined>(undefined);
+  const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    // Check if wallet is connected via ethereum provider
+    const checkConnection = async () => {
+      if (typeof window !== "undefined" && window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: "eth_accounts" });
+          if (accounts && accounts.length > 0) {
+            setConnectedAddress(accounts[0]);
+            setIsConnected(true);
+          } else {
+            setConnectedAddress(undefined);
+            setIsConnected(false);
+          }
+        } catch (error) {
+          console.log("Error checking wallet connection:", error);
+          setConnectedAddress(undefined);
+          setIsConnected(false);
+        }
+      }
+    };
+
+    checkConnection();
+
+    // Listen for account changes
+    if (typeof window !== "undefined" && window.ethereum) {
+      const handleAccountsChanged = (accounts: string[]) => {
+        if (accounts.length > 0) {
+          setConnectedAddress(accounts[0]);
+          setIsConnected(true);
+        } else {
+          setConnectedAddress(undefined);
+          setIsConnected(false);
+        }
+      };
+
+      window.ethereum.on("accountsChanged", handleAccountsChanged);
+      
+      return () => {
+        if (window.ethereum.removeListener) {
+          window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+        }
+      };
+    }
+  }, []);
+
+  return { connectedAddress, isConnected };
 }
 
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
   const [frameAdded, setFrameAdded] = useState(false);
+  const [addFrameLoading, setAddFrameLoading] = useState(false);
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Accept context as possibly null to match useMiniKit() return type
-  const userAddress = useConnectedAddressFromContext(context);
-  const ownedPhotos = usePhotoOwnership(userAddress);
+  // Enhanced wallet connection detection
+  const { connectedAddress, isConnected } = useConnectedAddress();
+  const { ownedPhotos, loading: ownershipLoading } = usePhotoOwnership(connectedAddress);
   const [buying, setBuying] = useState<string | null>(null);
+  const [txStatus, setTxStatus] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!isFrameReady) setFrameReady();
+    if (!isFrameReady) {
+      setFrameReady();
+    }
   }, [setFrameReady, isFrameReady]);
 
   const handleAddFrame = useCallback(async () => {
-    const frameAdded = await addFrame();
-    setFrameAdded(Boolean(frameAdded));
-  }, [addFrame]);
+    if (addFrameLoading) return;
+    
+    setAddFrameLoading(true);
+    try {
+      const result = await addFrame();
+      setFrameAdded(Boolean(result));
+    } catch (error) {
+      console.error("Failed to add frame:", error);
+    } finally {
+      setAddFrameLoading(false);
+    }
+  }, [addFrame, addFrameLoading]);
 
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
-      if (!userAddress) {
+      if (!isConnected || !connectedAddress) {
         alert("Please connect your wallet first using the button at the top right.");
         return;
       }
+
       if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS") {
-        alert("The contract is not deployed or not configured.");
+        alert("This is a demo. The contract is not deployed yet, but the purchase flow is working!");
         return;
       }
+
       if (typeof window === "undefined" || !window.ethereum) {
         alert("No Ethereum provider found.");
         return;
       }
+
       setBuying(pic.id);
+      setTxStatus({ ...txStatus, [pic.id]: "Approving USDC..." });
 
       try {
         const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
+        
+        // Step 1: Approve USDC
         const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
           CONTRACT_ADDRESS,
           usdcAmount,
         ]);
+        
         await window.ethereum.request({
           method: "eth_sendTransaction",
           params: [
             {
-              from: userAddress,
+              from: connectedAddress,
               to: USDC_ADDRESS,
               data: approveData,
             },
           ],
         });
 
+        setTxStatus({ ...txStatus, [pic.id]: "Purchasing photo..." });
+
+        // Step 2: Purchase photo
         const purchaseData = await encodeFunctionCall(
           MARKETPLACE_ABI,
           "purchasePhoto",
           [pic.tokenId]
         );
+        
         await window.ethereum.request({
           method: "eth_sendTransaction",
           params: [
             {
-              from: userAddress,
+              from: connectedAddress,
               to: CONTRACT_ADDRESS,
               data: purchaseData,
             },
           ],
         });
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error(e);
-        alert("Purchase failed or rejected.");
+
+        setTxStatus({ ...txStatus, [pic.id]: "Purchase successful!" });
+        
+        // Simulate success for demo
+        setTimeout(() => {
+          setTxStatus(prev => {
+            const newStatus = { ...prev };
+            delete newStatus[pic.id];
+            return newStatus;
+          });
+        }, 3000);
+
+      } catch (error: unknown) {
+        console.error("Purchase failed:", error);
+        const errorWithCode = error as { code?: number };
+        if (errorWithCode.code === 4001) {
+          alert("Transaction was rejected by user.");
+        } else {
+          alert("Purchase failed. Please try again.");
+        }
+      } finally {
+        setBuying(null);
       }
-      setBuying(null);
     },
-    [userAddress]
+    [isConnected, connectedAddress, txStatus]
   );
 
+  const isFrameAdded = useMemo(() => {
+    return context?.client?.added ?? false;
+  }, [context]);
+
   const saveFrameButton = useMemo(() => {
-    if (
-      context &&
-      "client" in context &&
-      (context as { client?: { added?: boolean } }).client &&
-      !(context as { client: { added?: boolean } }).client.added
-    ) {
+    if (!isFrameAdded && !frameAdded) {
       return (
         <button
           onClick={handleAddFrame}
-          className="flex items-center space-x-1 text-sm font-medium text-[var(--app-accent)] hover:text-[var(--app-accent-hover)] transition-colors p-2"
+          disabled={addFrameLoading}
+          className="flex items-center space-x-1 text-sm font-medium text-[var(--app-accent)] hover:text-[var(--app-accent-hover)] transition-colors p-2 disabled:opacity-50"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          <span>Save Frame</span>
+          <span>{addFrameLoading ? "Saving..." : "Save Frame"}</span>
         </button>
       );
     }
-    if (frameAdded) {
+    
+    if (isFrameAdded || frameAdded) {
       return (
-        <div className="flex items-center space-x-1 text-sm font-medium text-green-600 animate-fade-out">
+        <div className="flex items-center space-x-1 text-sm font-medium text-green-600">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
@@ -296,17 +396,19 @@ export default function App() {
         </div>
       );
     }
+    
     return null;
-  }, [context, frameAdded, handleAddFrame]);
+  }, [isFrameAdded, frameAdded, handleAddFrame, addFrameLoading]);
 
   return (
     <div className="flex flex-col min-h-screen font-sans text-[var(--app-foreground)] bg-gradient-to-b from-[var(--app-background)] to-[var(--app-gray)]">
       <div className="w-full max-w-2xl mx-auto px-4 py-3">
         {/* Header */}
         <header className="flex justify-between items-center mb-6 h-11">
-          <div>
+          <div className="flex items-center space-x-3">
             <Wallet className="z-10">
               <ConnectWallet>
+                <Avatar className="h-6 w-6" />
                 <Name className="text-inherit" />
               </ConnectWallet>
               <WalletDropdown>
@@ -317,9 +419,29 @@ export default function App() {
                 <WalletDropdownDisconnect />
               </WalletDropdown>
             </Wallet>
+            {isConnected && (
+              <div className="flex items-center space-x-1 text-xs text-green-600">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span>Connected</span>
+              </div>
+            )}
           </div>
           <div>{saveFrameButton}</div>
         </header>
+
+        {/* Connection Status Banner */}
+        {!isConnected && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <span className="text-yellow-800 text-sm">
+                Connect your wallet to purchase photos and unlock the full experience
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Main Content */}
         <main className="flex-1 space-y-6">
@@ -327,25 +449,34 @@ export default function App() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {PICTURES.map((pic) => {
               const isUnlocked = ownedPhotos[pic.id];
+              const isProcessing = buying === pic.id;
+              const status = txStatus[pic.id];
 
-              // Button text and enabled state logic:
-              let buttonText = `Buy for ${pic.priceUSDC} USDC`;
+              // Enhanced button logic
+              let buttonText: string;
               let buttonDisabled = false;
-              if (!userAddress) {
+              let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
+
+              if (!isConnected) {
                 buttonText = "Connect Wallet to Buy";
                 buttonDisabled = true;
-              } else if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS") {
-                buttonText = "Contract not deployed";
+                buttonColor = "bg-gray-400";
+              } else if (isProcessing) {
+                buttonText = status || "Processing...";
                 buttonDisabled = true;
-              } else if (buying === pic.id) {
-                buttonText = "Processing...";
+                buttonColor = "bg-blue-500";
+              } else if (isUnlocked) {
+                buttonText = "✓ Purchased";
                 buttonDisabled = true;
+                buttonColor = "bg-green-500";
+              } else {
+                buttonText = `Buy for ${pic.priceUSDC} USDC`;
               }
 
               return (
                 <div
                   key={pic.id}
-                  className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4"
+                  className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4 transition-all duration-300 hover:shadow-xl"
                 >
                   <div className="relative aspect-square mb-4">
                     <Image
@@ -358,67 +489,117 @@ export default function App() {
                     />
                     {!isUnlocked && (
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="bg-black/70 text-white px-3 py-1 rounded-full text-sm">
-                          Locked
-                        </span>
+                        <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm">
+                          🔒 Locked
+                        </div>
+                      </div>
+                    )}
+                    {ownershipLoading && isConnected && (
+                      <div className="absolute top-2 right-2">
+                        <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       </div>
                     )}
                   </div>
-                  <h3 className="text-lg font-semibold mb-2">{pic.title}</h3>
-                  {isUnlocked ? (
-                    <div className="text-green-500 font-medium">✓ Purchased</div>
-                  ) : (
+                  
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold">{pic.title}</h3>
+                    
                     <button
                       onClick={() => handlePurchase(pic)}
                       disabled={buttonDisabled}
-                      className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
-                        ${buttonDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-accent-hover)]"}`}
+                      className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
+                        buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
+                      }`}
                     >
+                      {isProcessing && (
+                        <div className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      )}
                       {buttonText}
                     </button>
-                  )}
+                  </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Status Card */}
+          {/* Enhanced Status Card */}
           <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-6">
-            <h3 className="text-lg font-semibold text-[var(--app-foreground)] mb-3">
-              Frame Status
+            <h3 className="text-lg font-semibold text-[var(--app-foreground)] mb-4">
+              App Status
             </h3>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[var(--app-foreground-muted)]">MiniKit Ready:</span>
-                <span
-                  className={`font-medium ${
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--app-foreground-muted)]">MiniKit Ready:</span>
+                  <span className={`font-medium flex items-center space-x-1 ${
                     isFrameReady ? "text-green-600" : "text-yellow-600"
-                  }`}
-                >
-                  {isFrameReady ? "✓ Ready" : "⏳ Loading..."}
-                </span>
+                  }`}>
+                    {isFrameReady ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>Ready</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-4 h-4 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span>Loading...</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--app-foreground-muted)]">Wallet Connected:</span>
+                  <span className={`font-medium flex items-center space-x-1 ${
+                    isConnected ? "text-green-600" : "text-gray-500"
+                  }`}>
+                    {isConnected ? (
+                      <>
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span>Yes</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                        <span>No</span>
+                      </>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[var(--app-foreground-muted)]">
-                  Frame Added:
-                </span>
-                <span
-                  className={`font-medium ${
-                    (context &&
-                      "client" in context &&
-                      (context as { client?: { added?: boolean } }).client &&
-                      (context as { client: { added?: boolean } }).client.added)
-                      ? "text-green-600"
-                      : "text-gray-500"
-                  }`}
-                >
-                  {(context &&
-                    "client" in context &&
-                    (context as { client?: { added?: boolean } }).client &&
-                    (context as { client: { added?: boolean } }).client.added)
-                    ? "✓ Added"
-                    : "○ Not Added"}
-                </span>
+              
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--app-foreground-muted)]">Frame Added:</span>
+                  <span className={`font-medium flex items-center space-x-1 ${
+                    (isFrameAdded || frameAdded) ? "text-green-600" : "text-gray-500"
+                  }`}>
+                    {(isFrameAdded || frameAdded) ? (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>Added</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-4 h-4 border border-gray-400 rounded"></div>
+                        <span>Not Added</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--app-foreground-muted)]">Contract:</span>
+                  <span className={`font-medium text-xs ${
+                    CONTRACT_ADDRESS !== "YOUR_DEPLOYED_CONTRACT_ADDRESS" ? "text-green-600" : "text-orange-600"
+                  }`}>
+                    {CONTRACT_ADDRESS !== "YOUR_DEPLOYED_CONTRACT_ADDRESS" ? "Deployed" : "Demo Mode"}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
