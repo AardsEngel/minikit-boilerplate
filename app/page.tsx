@@ -363,18 +363,15 @@ export default function App() {
                   {isUnlocked ? (
                     <div className="text-green-500 font-medium">✓ Purchased</div>
                   ) : (
-                    <button
-                      onClick={() => handlePurchase(pic)}
-                      disabled={buying === pic.id || !userAddress}
-                      className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
-                        ${(buying === pic.id || !userAddress) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--app-accent-hover)]'}`}
-                    >
-                      {!userAddress
-                        ? "Connect Wallet to Buy"
-                        : buying === pic.id
-                        ? "Processing..."
-                        : `Buy for ${pic.priceUSDC} USDC`}
-                    </button>
+                   <button
+  onClick={() => handlePurchase(pic)}
+  disabled={buying === pic.id}
+  className={`...`}
+>
+  {buying === pic.id
+    ? "Processing..."
+    : `Buy for ${pic.priceUSDC} USDC`}
+</button>
                   )}
                 </div>
               );
