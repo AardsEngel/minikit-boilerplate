@@ -21,64 +21,164 @@ import {
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
+/* ---------- CONTRACT CONSTANTS ---------- */
+const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+
 const PICTURES = [
   {
     id: "1",
+    tokenId: 0,
     src: "/pictures/pic1.webp",
     title: "Sunset Overdrive",
     priceUSDC: 5,
   },
   {
     id: "2",
+    tokenId: 1,
     src: "/pictures/pic2.jpg",
     title: "Ocean Calm",
     priceUSDC: 8,
   },
   {
     id: "3",
+    tokenId: 2,
     src: "/pictures/pic3.jpg",
     title: "City Lights",
     priceUSDC: 10,
   },
 ];
 
-function usePurchaseTracking() {
-  const [purchased, setPurchased] = useState<{[picId: string]: boolean}>({});
-  const storageKey = "purchased_pics_AardsEngel";
-  const purchaseTimeKey = "purchase_time_AardsEngel";
+// --------- ABI ENCODING HELPERS (NO ANY) -----------
+type AbiInput = { name: string; type: string };
+type AbiFunction = {
+  name: string;
+  type: "function";
+  inputs: AbiInput[];
+  outputs?: Array<{ type: string }>;
+};
 
-  useEffect(() => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      setPurchased(JSON.parse(stored));
-    }
-  }, []);
+const MARKETPLACE_ABI: AbiFunction[] = [
+  {
+    name: "purchasePhoto",
+    type: "function",
+    inputs: [{ name: "_tokenId", type: "uint256" }],
+  },
+  {
+    name: "ownerOf",
+    type: "function",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ type: "address" }],
+  },
+];
+const USDC_ABI: AbiFunction[] = [
+  {
+    name: "approve",
+    type: "function",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+  },
+];
 
-  const recordPurchase = (picId: string) => {
-    const updated = { ...purchased, [picId]: true };
-    setPurchased(updated);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    localStorage.setItem(purchaseTimeKey, "2025-06-19 12:10:03"); // Using provided UTC time
-  };
-
-  return { purchased, recordPurchase };
+// Utility: pad hex string to 32 bytes
+function padHex(value: string, bytes = 32): string {
+  return value.replace(/^0x/, "").padStart(bytes * 2, "0");
 }
 
+// Minimal Keccak256 for selector (uses SubtleCrypto, no require)
+async function keccak256Selector(signature: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(signature);
+  const hashBuffer = await window.crypto.subtle.digest("SHA-3-256", data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 8);
+}
+
+// Encode selector and arguments
+async function encodeFunctionCall(
+  abi: AbiFunction[],
+  functionName: string,
+  params: (string | number)[]
+): Promise<string> {
+  const fn = abi.find((f) => f.name === functionName);
+  if (!fn) throw new Error("Function not found in ABI");
+  const selector =
+    "0x" +
+    (await keccak256Selector(
+      `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`
+    ));
+  let encodedArgs = "";
+  for (let i = 0; i < fn.inputs.length; i++) {
+    let val = params[i];
+    if (fn.inputs[i].type === "uint256") {
+      // BigInt for safety, output hex
+      val = BigInt(val).toString(16);
+      encodedArgs += val.padStart(64, "0");
+    } else if (fn.inputs[i].type === "address") {
+      encodedArgs += padHex(val as string, 32);
+    }
+  }
+  return selector + encodedArgs;
+}
+
+/* ------- HOOK: Onchain Ownership (NO ANY) ------- */
+function usePhotoOwnership(userAddress: string | undefined) {
+  const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!userAddress || typeof window === "undefined" || !window.ethereum) return;
+    let cancelled = false;
+    (async () => {
+      const owned: Record<string, boolean> = {};
+      for (const pic of PICTURES) {
+        // Encode ownerOf
+        const data = await encodeFunctionCall(MARKETPLACE_ABI, "ownerOf", [pic.tokenId]);
+        try {
+          const res: string = await window.ethereum.request({
+            method: "eth_call",
+            params: [
+              {
+                to: CONTRACT_ADDRESS,
+                data,
+              },
+              "latest",
+            ],
+          });
+          // Address is last 40 chars
+          const owner = "0x" + res.slice(-40);
+          owned[pic.id] = owner.toLowerCase() === userAddress.toLowerCase();
+        } catch {
+          owned[pic.id] = false;
+        }
+      }
+      if (!cancelled) setOwnedPhotos(owned);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userAddress]);
+  return ownedPhotos;
+}
+
+/* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
   const [frameAdded, setFrameAdded] = useState(false);
-
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Gallery state
+  // User address from context (MiniKit)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userAddress: string | undefined = (context?.client as { address?: string })?.address;
+  const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
-  const { purchased, recordPurchase } = usePurchaseTracking();
 
   useEffect(() => {
-    if (!isFrameReady) {
-      setFrameReady();
-    }
+    if (!isFrameReady) setFrameReady();
   }, [setFrameReady, isFrameReady]);
 
   const handleAddFrame = useCallback(async () => {
@@ -86,16 +186,64 @@ export default function App() {
     setFrameAdded(Boolean(frameAdded));
   }, [addFrame]);
 
-  const handlePurchase = useCallback(async (picId: string) => {
-    setBuying(picId);
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    recordPurchase(picId);
-    setBuying(null);
-  }, [recordPurchase]);
+  // USDC approval + contract purchase with window.ethereum.request
+  const handlePurchase = useCallback(
+    async (pic: typeof PICTURES[number]) => {
+      if (!userAddress || typeof window === "undefined" || !window.ethereum) {
+        alert("Connect wallet first.");
+        return;
+      }
+      setBuying(pic.id);
+
+      try {
+        // 1. Approve USDC (6 decimals)
+        const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
+        const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
+          CONTRACT_ADDRESS,
+          usdcAmount,
+        ]);
+        await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: userAddress,
+              to: USDC_ADDRESS,
+              data: approveData,
+            },
+          ],
+        });
+
+        // 2. Purchase NFT
+        const purchaseData = await encodeFunctionCall(
+          MARKETPLACE_ABI,
+          "purchasePhoto",
+          [pic.tokenId]
+        );
+        await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: userAddress,
+              to: CONTRACT_ADDRESS,
+              data: purchaseData,
+            },
+          ],
+        });
+
+        // Ownership will update on next render
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(e);
+        alert("Purchase failed or rejected.");
+      }
+      setBuying(null);
+    },
+    [userAddress]
+  );
 
   const saveFrameButton = useMemo(() => {
-    if (context && !context.client.added) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (context && !(context as { client: { added?: boolean } }).client.added) {
       return (
         <button
           onClick={handleAddFrame}
@@ -108,7 +256,6 @@ export default function App() {
         </button>
       );
     }
-
     if (frameAdded) {
       return (
         <div className="flex items-center space-x-1 text-sm font-medium text-green-600 animate-fade-out">
@@ -119,7 +266,6 @@ export default function App() {
         </div>
       );
     }
-
     return null;
   }, [context, frameAdded, handleAddFrame]);
 
@@ -151,10 +297,13 @@ export default function App() {
         <main className="flex-1 space-y-6">
           {/* Gallery Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {PICTURES.map(pic => {
-              const isUnlocked = purchased[pic.id];
+            {PICTURES.map((pic) => {
+              const isUnlocked = ownedPhotos[pic.id];
               return (
-                <div key={pic.id} className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4">
+                <div
+                  key={pic.id}
+                  className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4"
+                >
                   <div className="relative aspect-square mb-4">
                     <Image
                       src={pic.src}
@@ -177,12 +326,16 @@ export default function App() {
                     <div className="text-green-500 font-medium">✓ Purchased</div>
                   ) : (
                     <button
-                      onClick={() => handlePurchase(pic.id)}
-                      disabled={buying === pic.id}
+                      onClick={() => handlePurchase(pic)}
+                      disabled={buying === pic.id || !userAddress}
                       className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
-                        ${buying === pic.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--app-accent-hover)]'}`}
+                        ${(buying === pic.id || !userAddress) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--app-accent-hover)]'}`}
                     >
-                      {buying === pic.id ? 'Processing...' : `Buy for ${pic.priceUSDC} USDC`}
+                      {!userAddress
+                        ? "Connect Wallet to Buy"
+                        : buying === pic.id
+                        ? "Processing..."
+                        : `Buy for ${pic.priceUSDC} USDC`}
                     </button>
                   )}
                 </div>
@@ -198,14 +351,28 @@ export default function App() {
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-[var(--app-foreground-muted)]">MiniKit Ready:</span>
-                <span className={`font-medium ${isFrameReady ? 'text-green-600' : 'text-yellow-600'}`}>
-                  {isFrameReady ? '✓ Ready' : '⏳ Loading...'}
+                <span
+                  className={`font-medium ${
+                    isFrameReady ? "text-green-600" : "text-yellow-600"
+                  }`}
+                >
+                  {isFrameReady ? "✓ Ready" : "⏳ Loading..."}
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[var(--app-foreground-muted)]">Frame Added:</span>
-                <span className={`font-medium ${context?.client.added ? 'text-green-600' : 'text-gray-500'}`}>
-                  {context?.client.added ? '✓ Added' : '○ Not Added'}
+                <span className="text-[var(--app-foreground-muted)]">
+                  Frame Added:
+                </span>
+                <span
+                  className={`font-medium ${
+                    ((context as { client: { added?: boolean } })?.client?.added)
+                      ? "text-green-600"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {((context as { client: { added?: boolean } })?.client?.added)
+                    ? "✓ Added"
+                    : "○ Not Added"}
                 </span>
               </div>
             </div>
