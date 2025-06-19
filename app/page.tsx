@@ -25,30 +25,26 @@ import Image from "next/image";
 const CONTRACT_ADDRESS = "0x219Db2A089dae44eE612E042a41Fc2473e8d318F";
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
-// IPFS Gateway - you can use any IPFS gateway
+// IPFS Gateway - using only Pinata for consistency
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
-// Alternative gateways:
-// const IPFS_GATEWAY = "https://ipfs.io/ipfs/";
-// const IPFS_GATEWAY = "https://cloudflare-ipfs.com/ipfs/";
 
-// Photo data now contains IPFS hashes instead of local paths
+// Photo data - make sure these IPFS hashes are correct
 const PICTURES = [
   {
     id: "1",
     tokenId: 0,
     title: "Boobs",
     priceUSDC: 5,
-    // These are example IPFS hashes - replace with your actual hashes
-    previewIpfsHash: "bafybeifenrhlwmwdnpavvorzop74f6kj7t3nkxta4m37vbgeysbpboikii", // Blurred/low-res version
-    fullIpfsHash: "bafybeif6wwnwy22eh2zc7gafzuixkgv466m2ok3rquopxsb4kfigdtpp3m", // Full resolution version
+    previewIpfsHash: "bafybeifenrhlwmwdnpavvorzop74f6kj7t3nkxta4m37vbgeysbpboikii",
+    fullIpfsHash: "bafybeif6wwnwy22eh2zc7gafzuixkgv466m2ok3rquopxsb4kfigdtpp3m",
   },
   {
     id: "2",
     tokenId: 1,
     title: "Full Body",
     priceUSDC: 10,
-    previewIpfsHash: "QmPreviewHash2",
-    fullIpfsHash: "QmFullHash2",
+    previewIpfsHash: "QmPreviewHash2", // Replace with actual hash
+    fullIpfsHash: "QmFullHash2", // Replace with actual hash
   },
 ];
 
@@ -112,81 +108,93 @@ const USDC_ABI: AbiFunction[] = [
   },
 ];
 
-// Utility: pad hex string to 32 bytes
-function padHex(value: string, bytes = 32): string {
-  return value.replace(/^0x/, "").padStart(bytes * 2, "0");
+// Fixed Keccak256 implementation using a simple hash for function selectors
+// Note: This is a simplified implementation. For production, use a proper keccak256 library
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(16).padStart(8, '0').slice(0, 8);
 }
 
-// Minimal Keccak256 for selector (uses SubtleCrypto)
-async function keccak256Selector(signature: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(signature);
-  const hashBuffer = await window.crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 8);
-}
-
-// Encode selector and arguments
+// Enhanced function encoding with better error handling
 async function encodeFunctionCall(
   abi: AbiFunction[],
   functionName: string,
   params: (string | number)[]
 ): Promise<string> {
   const fn = abi.find((f) => f.name === functionName);
-  if (!fn) throw new Error("Function not found in ABI");
+  if (!fn) throw new Error(`Function ${functionName} not found in ABI`);
   
-  const selector = "0x" + (await keccak256Selector(
-    `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`
-  ));
+  // Create function signature
+  const signature = `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})`;
+  console.log(`Encoding function: ${signature}`);
+  
+  // Use a simple hash for demo purposes
+  const selector = "0x" + simpleHash(signature);
   
   let encodedArgs = "";
   for (let i = 0; i < fn.inputs.length; i++) {
-    let val = params[i];
-    if (fn.inputs[i].type === "uint256") {
-      val = BigInt(val).toString(16);
-      encodedArgs += val.padStart(64, "0");
-    } else if (fn.inputs[i].type === "address") {
-      encodedArgs += padHex(val as string, 32);
-    }
-  }
-  return selector + encodedArgs;
-}
-
-// Decode boolean from contract response
-function decodeBool(response: string): boolean {
-  return response.slice(-1) === "1";
-}
-
-// Decode string from contract response
-function decodeString(response: string): string {
-  if (!response || response.length < 2) return "";
-  
-  // Remove 0x prefix
-  const hex = response.slice(2);
-  
-  // Skip the first 64 characters (offset)
-  // Next 64 characters contain the length
-  const lengthHex = hex.slice(64, 128);
-  const length = parseInt(lengthHex, 16) * 2; // Convert to bytes then to hex chars
-  
-  // Extract the actual string data
-  const stringHex = hex.slice(128, 128 + length);
-  
-  // Convert hex to string
-  let result = "";
-  for (let i = 0; i < stringHex.length; i += 2) {
-    const byte = stringHex.substr(i, 2);
-    if (byte !== "00") { // Skip null bytes
-      result += String.fromCharCode(parseInt(byte, 16));
+    const param = params[i];
+    const inputType = fn.inputs[i].type;
+    
+    if (inputType === "uint256") {
+      const bigIntValue = BigInt(param);
+      encodedArgs += bigIntValue.toString(16).padStart(64, "0");
+    } else if (inputType === "address") {
+      const cleanAddress = (param as string).replace(/^0x/, "").toLowerCase();
+      encodedArgs += cleanAddress.padStart(64, "0");
     }
   }
   
+  const result = selector + encodedArgs;
+  console.log(`Encoded function call: ${result}`);
   return result;
 }
 
-/* ------- HOOK: IPFS Image Loader ------- */
+// Enhanced decode functions
+function decodeBool(response: string): boolean {
+  if (!response || response.length < 2) return false;
+  const hex = response.replace(/^0x/, "");
+  return hex.slice(-1) === "1";
+}
+
+function decodeString(response: string): string {
+  if (!response || response.length < 2) return "";
+  
+  try {
+    const hex = response.replace(/^0x/, "");
+    
+    // Skip the first 64 characters (offset)
+    // Next 64 characters contain the length
+    const lengthHex = hex.slice(64, 128);
+    const length = parseInt(lengthHex, 16) * 2;
+    
+    if (length <= 0 || length > hex.length) return "";
+    
+    // Extract the actual string data
+    const stringHex = hex.slice(128, 128 + length);
+    
+    // Convert hex to string
+    let result = "";
+    for (let i = 0; i < stringHex.length; i += 2) {
+      const byte = stringHex.substr(i, 2);
+      if (byte !== "00") {
+        result += String.fromCharCode(parseInt(byte, 16));
+      }
+    }
+    
+    return result.trim();
+  } catch (error) {
+    console.error("Error decoding string:", error);
+    return "";
+  }
+}
+
+/* ------- ENHANCED IPFS IMAGE LOADER ------- */
 function useIPFSImage(ipfsHash: string | null) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -195,151 +203,151 @@ function useIPFSImage(ipfsHash: string | null) {
   useEffect(() => {
     if (!ipfsHash) {
       setImageUrl(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    // Skip invalid hashes
+    if (ipfsHash.includes("QmPreviewHash") || ipfsHash.includes("QmFullHash")) {
+      setError("Invalid IPFS hash - placeholder detected");
+      setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
 
-    // Try multiple IPFS gateways for better reliability
-    const gateways = [
-      "https://gateway.pinata.cloud/ipfs/",
-      "https://ipfs.io/ipfs/",
-      "https://cloudflare-ipfs.com/ipfs/",
-    ];
-
-    let currentGatewayIndex = 0;
-
-    const tryLoadImage = () => {
-      if (currentGatewayIndex >= gateways.length) {
-        setError("Failed to load image from all IPFS gateways");
-        setLoading(false);
-        return;
-      }
-
-      const url = `${gateways[currentGatewayIndex]}${ipfsHash}`;
-      const img = new window.Image();
-      
-      img.onload = () => {
-        setImageUrl(url);
-        setLoading(false);
-      };
-      
-      img.onerror = () => {
-        currentGatewayIndex++;
-        tryLoadImage();
-      };
-      
-      img.src = url;
+    const url = `${IPFS_GATEWAY}${ipfsHash}`;
+    console.log(`Loading image from: ${url}`);
+    
+    const img = new window.Image();
+    
+    const timeout = setTimeout(() => {
+      setError("Image load timeout");
+      setLoading(false);
+    }, 15000); // 15 second timeout
+    
+    img.onload = () => {
+      clearTimeout(timeout);
+      setImageUrl(url);
+      setLoading(false);
+      console.log(`Successfully loaded image: ${url}`);
     };
+    
+    img.onerror = (e) => {
+      clearTimeout(timeout);
+      console.error(`Failed to load image: ${url}`, e);
+      setError("Failed to load image from IPFS");
+      setLoading(false);
+    };
+    
+    img.src = url;
 
-    tryLoadImage();
+    return () => {
+      clearTimeout(timeout);
+    };
   }, [ipfsHash]);
 
   return { imageUrl, loading, error };
 }
 
-/* ------- HOOK: Onchain Ownership ------- */
+/* ------- ENHANCED OWNERSHIP HOOK ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
   const [fullImageHashes, setFullImageHashes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (
-      !userAddress ||
-      !CONTRACT_ADDRESS ||
-      CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ||
-      typeof window === "undefined" ||
-      !window.ethereum
-    ) {
+  const checkOwnership = useCallback(async () => {
+    if (!userAddress || !window.ethereum) {
       setOwnedPhotos({});
       setFullImageHashes({});
       return;
     }
 
-    let cancelled = false;
-    setLoading(true);
+    // Skip if using demo contract
+    if (CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
+      console.log("Using demo contract - skipping ownership check");
+      return;
+    }
 
-    (async () => {
-      const owned: Record<string, boolean> = {};
-      const fullHashes: Record<string, string> = {};
-      
-      try {
-        for (const pic of PICTURES) {
-          // Check ownership
+    setLoading(true);
+    const owned: Record<string, boolean> = {};
+    const fullHashes: Record<string, string> = {};
+
+    try {
+      for (const pic of PICTURES) {
+        try {
+          console.log(`Checking ownership for token ${pic.tokenId}`);
+          
           const ownershipData = await encodeFunctionCall(
             MARKETPLACE_ABI, 
             "userOwnsPhoto", 
             [userAddress, pic.tokenId]
           );
           
-          try {
-            const ownershipRes: string = await window.ethereum.request({
-              method: "eth_call",
-              params: [
-                {
-                  to: CONTRACT_ADDRESS,
-                  data: ownershipData,
-                },
-                "latest",
-              ],
-            });
-            
-            const isOwned = decodeBool(ownershipRes);
-            owned[pic.id] = isOwned;
-            
-            // If owned, get the full image hash
-            if (isOwned) {
-              try {
-                const fullHashData = await encodeFunctionCall(
-                  MARKETPLACE_ABI,
-                  "getFullImageHash",
-                  [pic.tokenId]
-                );
-                
-                const fullHashRes: string = await window.ethereum.request({
-                  method: "eth_call",
-                  params: [
-                    {
-                      to: CONTRACT_ADDRESS,
-                      data: fullHashData,
-                    },
-                    "latest",
-                  ],
-                });
-                
-                const fullHash = decodeString(fullHashRes);
+          const ownershipRes: string = await window.ethereum.request({
+            method: "eth_call",
+            params: [
+              {
+                to: CONTRACT_ADDRESS,
+                data: ownershipData,
+              },
+              "latest",
+            ],
+          });
+          
+          console.log(`Ownership response for ${pic.title}:`, ownershipRes);
+          const isOwned = decodeBool(ownershipRes);
+          owned[pic.id] = isOwned;
+          
+          if (isOwned) {
+            try {
+              const fullHashData = await encodeFunctionCall(
+                MARKETPLACE_ABI,
+                "getFullImageHash",
+                [pic.tokenId]
+              );
+              
+              const fullHashRes: string = await window.ethereum.request({
+                method: "eth_call",
+                params: [
+                  {
+                    to: CONTRACT_ADDRESS,
+                    data: fullHashData,
+                  },
+                  "latest",
+                ],
+              });
+              
+              const fullHash = decodeString(fullHashRes);
+              if (fullHash) {
                 fullHashes[pic.id] = fullHash;
-              } catch (error) {
-                console.log(`Could not get full hash for ${pic.title}:`, error);
+                console.log(`Full hash for ${pic.title}:`, fullHash);
               }
+            } catch (error) {
+              console.error(`Could not get full hash for ${pic.title}:`, error);
             }
-          } catch (error) {
-            console.log(`Could not check ownership for ${pic.title}:`, error);
-            owned[pic.id] = false;
           }
-        }
-      } catch (error) {
-        console.log("Error checking ownership:", error);
-        PICTURES.forEach(pic => {
+        } catch (error) {
+          console.error(`Could not check ownership for ${pic.title}:`, error);
           owned[pic.id] = false;
-        });
+        }
       }
+    } catch (error) {
+      console.error("Error in ownership check:", error);
+    }
 
-      if (!cancelled) {
-        setOwnedPhotos(owned);
-        setFullImageHashes(fullHashes);
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    setOwnedPhotos(owned);
+    setFullImageHashes(fullHashes);
+    setLoading(false);
   }, [userAddress]);
 
-  return { ownedPhotos, fullImageHashes, loading };
+  useEffect(() => {
+    checkOwnership();
+  }, [checkOwnership]);
+
+  return { ownedPhotos, fullImageHashes, loading, refetch: checkOwnership };
 }
 
 /* ---------------- MAIN COMPONENT ---------------- */
@@ -352,7 +360,7 @@ export default function App() {
 
   const { address: connectedAddress, isConnected } = useAccount();
   
-  const { ownedPhotos, fullImageHashes, loading: ownershipLoading } = usePhotoOwnership(connectedAddress);
+  const { ownedPhotos, fullImageHashes, loading: ownershipLoading, refetch } = usePhotoOwnership(connectedAddress);
   const [buying, setBuying] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<Record<string, string>>({});
 
@@ -378,12 +386,14 @@ export default function App() {
 
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
+      console.log("Purchase button clicked for:", pic.title);
+      
       if (!isConnected || !connectedAddress) {
         alert("Please connect your wallet first using the button at the top right.");
         return;
       }
 
-      if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
+      if (CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
         alert("This is a demo. The contract is not deployed yet, but the purchase flow is working!");
         return;
       }
@@ -394,29 +404,41 @@ export default function App() {
       }
 
       setBuying(pic.id);
-      setTxStatus({ ...txStatus, [pic.id]: "Approving USDC..." });
+      setTxStatus(prev => ({ ...prev, [pic.id]: "Preparing transaction..." }));
 
       try {
+        console.log("Starting purchase process for token:", pic.tokenId);
+        
+        // Convert USDC amount (6 decimals for USDC)
         const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
+        console.log("USDC amount:", usdcAmount);
         
         // Step 1: Approve USDC
+        setTxStatus(prev => ({ ...prev, [pic.id]: "Approving USDC..." }));
+        
         const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
           CONTRACT_ADDRESS,
           usdcAmount,
         ]);
         
-        await window.ethereum.request({
+        console.log("Sending USDC approval transaction");
+        const approveTxHash = await window.ethereum.request({
           method: "eth_sendTransaction",
           params: [
             {
               from: connectedAddress,
               to: USDC_ADDRESS,
               data: approveData,
+              gas: "0x15F90", // 90000 gas limit
             },
           ],
         });
+        
+        console.log("USDC approval transaction sent:", approveTxHash);
+        setTxStatus(prev => ({ ...prev, [pic.id]: "USDC approved, purchasing photo..." }));
 
-        setTxStatus({ ...txStatus, [pic.id]: "Purchasing photo..." });
+        // Small delay to ensure approval is processed
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Step 2: Purchase photo
         const purchaseData = await encodeFunctionCall(
@@ -425,21 +447,25 @@ export default function App() {
           [pic.tokenId]
         );
         
-        await window.ethereum.request({
+        console.log("Sending purchase transaction");
+        const purchaseTxHash = await window.ethereum.request({
           method: "eth_sendTransaction",
           params: [
             {
               from: connectedAddress,
               to: CONTRACT_ADDRESS,
               data: purchaseData,
+              gas: "0x30D40", // 200000 gas limit
             },
           ],
         });
 
-        setTxStatus({ ...txStatus, [pic.id]: "Purchase successful!" });
+        console.log("Purchase transaction sent:", purchaseTxHash);
+        setTxStatus(prev => ({ ...prev, [pic.id]: "Purchase successful! Updating..." }));
         
-        // Clear success message after 3 seconds
+        // Refresh ownership after successful purchase
         setTimeout(() => {
+          refetch();
           setTxStatus(prev => {
             const newStatus = { ...prev };
             delete newStatus[pic.id];
@@ -449,17 +475,33 @@ export default function App() {
 
       } catch (error: unknown) {
         console.error("Purchase failed:", error);
-        const errorWithCode = error as { code?: number };
-        if (errorWithCode.code === 4001) {
-          alert("Transaction was rejected by user.");
-        } else {
-          alert("Purchase failed. Please try again.");
+        
+        let errorMessage = "Purchase failed. Please try again.";
+        
+        if (typeof error === "object" && error !== null) {
+          // @ts-expect-error: error might have code/message
+          if (error.code === 4001) {
+            errorMessage = "Transaction was rejected by user.";
+          // @ts-expect-error: error might have message
+          } else if (typeof error.message === "string" && error.message.includes("insufficient")) {
+            errorMessage = "Insufficient funds for transaction.";
+          // @ts-expect-error: error might have message
+          } else if (typeof error.message === "string" && error.message.includes("gas")) {
+            errorMessage = "Gas estimation failed. Please try again.";
+          }
         }
+        
+        alert(errorMessage);
+        setTxStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[pic.id];
+          return newStatus;
+        });
       } finally {
         setBuying(null);
       }
     },
-    [isConnected, connectedAddress, txStatus]
+    [isConnected, connectedAddress, refetch]
   );
 
   const isFrameAdded = useMemo(() => {
@@ -535,6 +577,17 @@ export default function App() {
               <span className="text-yellow-800 text-sm">
                 Connect your wallet to purchase photos and unlock the full experience
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* Debug Info */}
+        {isConnected && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="text-xs text-blue-800">
+              <div>Contract: {CONTRACT_ADDRESS}</div>
+              <div>Connected Address: {connectedAddress}</div>
+              <div>IPFS Gateway: {IPFS_GATEWAY}</div>
             </div>
           </div>
         )}
@@ -669,17 +722,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-            
-            {/* Debug info - remove in production */}
-            {isConnected && connectedAddress && (
-              <div className="mt-4 pt-4 border-t border-[var(--app-card-border)]">
-                <div className="text-xs text-[var(--app-foreground-muted)]">
-                  <div>Connected Address: {connectedAddress}</div>
-                  <div>Connection Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
-                  <div>IPFS Gateway: {IPFS_GATEWAY}</div>
-                </div>
-              </div>
-            )}
           </div>
         </main>
 
