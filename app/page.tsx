@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
 /* ---------- CONTRACT CONSTANTS ---------- */
-const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+const CONTRACT_ADDRESS = "0x219Db2A089dae44eE612E042a41Fc2473e8d318F";
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
 // IPFS Gateway - you can use any IPFS gateway
@@ -39,8 +39,8 @@ const PICTURES = [
     title: "Boobs",
     priceUSDC: 5,
     // These are example IPFS hashes - replace with your actual hashes
-    previewIpfsHash: "QmPreviewHash1", // Blurred/low-res version
-    fullIpfsHash: "QmFullHash1", // Full resolution version
+    previewIpfsHash: "bafybeifenrhlwmwdnpavvorzop74f6kj7t3nkxta4m37vbgeysbpboikii", // Blurred/low-res version
+    fullIpfsHash: "bafybeif6wwnwy22eh2zc7gafzuixkgv466m2ok3rquopxsb4kfigdtpp3m", // Full resolution version
   },
   {
     id: "2",
@@ -249,7 +249,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
     if (
       !userAddress ||
       !CONTRACT_ADDRESS ||
-      CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS" ||
+      CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ||
       typeof window === "undefined" ||
       !window.ethereum
     ) {
@@ -383,7 +383,7 @@ export default function App() {
         return;
       }
 
-      if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS") {
+      if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "0x219Db2A089dae44eE612E042a41Fc2473e8d318F") {
         alert("This is a demo. The contract is not deployed yet, but the purchase flow is working!");
         return;
       }
@@ -662,9 +662,9 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--app-foreground-muted)]">Contract:</span>
                   <span className={`font-medium text-xs ${
-                    CONTRACT_ADDRESS !== "YOUR_DEPLOYED_CONTRACT_ADDRESS" ? "text-green-600" : "text-orange-600"
+                    CONTRACT_ADDRESS !== "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ? "text-green-600" : "text-orange-600"
                   }`}>
-                    {CONTRACT_ADDRESS !== "YOUR_DEPLOYED_CONTRACT_ADDRESS" ? "Deployed" : "Demo Mode"}
+                    {CONTRACT_ADDRESS !== "0x219Db2A089dae44eE612E042a41Fc2473e8d318F" ? "Deployed" : "Demo Mode"}
                   </span>
                 </div>
               </div>
