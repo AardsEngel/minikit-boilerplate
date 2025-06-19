@@ -29,22 +29,15 @@ const PICTURES = [
   {
     id: "1",
     tokenId: 0,
-    src: "/pictures/pic1.webp",
-    title: "Sunset Overdrive",
+    src: "/pictures/Boobs.png",
+    title: "Boobs",
     priceUSDC: 5,
   },
   {
     id: "2",
     tokenId: 1,
-    src: "/pictures/pic2.jpg",
-    title: "Ocean Calm",
-    priceUSDC: 8,
-  },
-  {
-    id: "3",
-    tokenId: 2,
-    src: "/pictures/pic3.jpg",
-    title: "City Lights",
+    src: "/pictures/Full.png",
+    title: "Full Body",
     priceUSDC: 10,
   },
 ];
