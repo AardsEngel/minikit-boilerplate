@@ -382,121 +382,184 @@ export default function App() {
   }, [addFrame, addFrameLoading]);
 
   const handlePurchase = useCallback(
-    
-    async (pic: typeof PICTURES[number]) => {
-      console.log("Purchase button clicked for:", pic.title);
-      console.log("handlePurchase called for", pic);
- 
-      if (!isConnected || !connectedAddress) {
-        alert("Please connect your wallet first using the button at the top right.");
-        return;
+  async (pic: typeof PICTURES[number]) => {
+    console.log("Purchase button clicked for:", pic.title);
+
+    if (!isConnected || !connectedAddress) {
+      alert("Please connect your wallet first using the button at the top right.");
+      return;
+    }
+
+    if (typeof window === "undefined" || !window.ethereum) {
+      alert("No Ethereum provider found.");
+      return;
+    }
+
+    setBuying(pic.id);
+    setTxStatus(prev => ({ ...prev, [pic.id]: "Preparing transaction..." }));
+
+    try {
+      // First, ensure we have proper account access
+      console.log("Requesting account access...");
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts'
+      });
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error("No accounts available");
       }
 
-      if (typeof window === "undefined" || !window.ethereum) {
-        alert("No Ethereum provider found.");
-        return;
-      }
+      const userAccount = accounts[0];
+      console.log("Using account:", userAccount);
 
-      setBuying(pic.id);
-      setTxStatus(prev => ({ ...prev, [pic.id]: "Preparing transaction..." }));
-
-      try {
-        console.log("Starting purchase process for token:", pic.tokenId);
-        
-        // Convert USDC amount (6 decimals for USDC)
-        const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
-        console.log("USDC amount:", usdcAmount);
-        
-        // Step 1: Approve USDC
-        setTxStatus(prev => ({ ...prev, [pic.id]: "Approving USDC..." }));
-        
-        const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
-          CONTRACT_ADDRESS,
-          usdcAmount,
-        ]);
-        
-        console.log("Sending USDC approval transaction");
-        const approveTxHash = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: connectedAddress,
-              to: USDC_ADDRESS,
-              data: approveData,
-              gas: "0x15F90", // 90000 gas limit
-            },
-          ],
-        });
-        
-        console.log("USDC approval transaction sent:", approveTxHash);
-        setTxStatus(prev => ({ ...prev, [pic.id]: "USDC approved, purchasing photo..." }));
-
-        // Small delay to ensure approval is processed
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // Step 2: Purchase photo
-        const purchaseData = await encodeFunctionCall(
-          MARKETPLACE_ABI,
-          "purchasePhoto",
-          [pic.tokenId]
-        );
-        
-        console.log("Sending purchase transaction");
-        const purchaseTxHash = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: connectedAddress,
-              to: CONTRACT_ADDRESS,
-              data: purchaseData,
-              gas: "0x30D40", // 200000 gas limit
-            },
-          ],
-        });
-
-        console.log("Purchase transaction sent:", purchaseTxHash);
-        setTxStatus(prev => ({ ...prev, [pic.id]: "Purchase successful! Updating..." }));
-        
-        // Refresh ownership after successful purchase
-        setTimeout(() => {
-          refetch();
-          setTxStatus(prev => {
-            const newStatus = { ...prev };
-            delete newStatus[pic.id];
-            return newStatus;
+      // Verify we're on the correct network (Base mainnet)
+      const chainId = await window.ethereum.request({
+        method: 'eth_chainId'
+      });
+      
+      console.log("Current chain ID:", chainId);
+      
+      // Base mainnet is 0x2105 (8453 in decimal)
+      if (chainId !== '0x2105') {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x2105' }],
           });
-        }, 3000);
-
-      } catch (error: unknown) {
-        console.error("Purchase failed:", error);
-        
-        let errorMessage = "Purchase failed. Please try again.";
-        
-        if (typeof error === "object" && error !== null) {
-          // @ts-expect-error: error might have code/message
-          if (error.code === 4001) {
-            errorMessage = "Transaction was rejected by user.";
-          // @ts-expect-error: error might have message
-          } else if (typeof error.message === "string" && error.message.includes("insufficient")) {
-            errorMessage = "Insufficient funds for transaction.";
-          // @ts-expect-error: error might have message
-          } else if (typeof error.message === "string" && error.message.includes("gas")) {
-            errorMessage = "Gas estimation failed. Please try again.";
+        } catch (switchError: unknown) {
+          // If the chain doesn't exist, add it
+          if (
+            typeof switchError === "object" &&
+            switchError !== null &&
+            "code" in switchError &&
+            switchError.code === 4902
+          ) {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: '0x2105',
+                chainName: 'Base',
+                nativeCurrency: {
+                  name: 'Ethereum',
+                  symbol: 'ETH',
+                  decimals: 18,
+                },
+                rpcUrls: ['https://mainnet.base.org'],
+                blockExplorerUrls: ['https://basescan.org'],
+              }],
+            });
+          } else {
+            throw switchError;
           }
         }
-        
-        alert(errorMessage);
+      }
+
+      console.log("Starting purchase process for token:", pic.tokenId);
+      
+      // Convert USDC amount (6 decimals for USDC)
+      const usdcAmount = (BigInt(pic.priceUSDC) * BigInt(1_000_000)).toString();
+      console.log("USDC amount:", usdcAmount);
+      
+      // Step 1: Approve USDC
+      setTxStatus(prev => ({ ...prev, [pic.id]: "Approving USDC..." }));
+      
+      const approveData = await encodeFunctionCall(USDC_ABI, "approve", [
+        CONTRACT_ADDRESS,
+        usdcAmount,
+      ]);
+      
+      console.log("Sending USDC approval transaction");
+      const approveTxHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: userAccount, // Use the verified account
+            to: USDC_ADDRESS,
+            data: approveData,
+            gas: "0x15F90", // 90000 gas limit
+          },
+        ],
+      });
+      
+      console.log("USDC approval transaction sent:", approveTxHash);
+      setTxStatus(prev => ({ ...prev, [pic.id]: "USDC approved, purchasing photo..." }));
+
+      // Wait for approval confirmation
+      setTxStatus(prev => ({ ...prev, [pic.id]: "Waiting for approval confirmation..." }));
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Step 2: Purchase photo
+      const purchaseData = await encodeFunctionCall(
+        MARKETPLACE_ABI,
+        "purchasePhoto",
+        [pic.tokenId]
+      );
+      
+      console.log("Sending purchase transaction");
+      const purchaseTxHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: userAccount, // Use the verified account
+            to: CONTRACT_ADDRESS,
+            data: purchaseData,
+            gas: "0x30D40", // 200000 gas limit
+          },
+        ],
+      });
+
+      console.log("Purchase transaction sent:", purchaseTxHash);
+      setTxStatus(prev => ({ ...prev, [pic.id]: "Purchase successful! Updating..." }));
+      
+      // Refresh ownership after successful purchase
+      setTimeout(() => {
+        refetch();
         setTxStatus(prev => {
           const newStatus = { ...prev };
           delete newStatus[pic.id];
           return newStatus;
         });
-      } finally {
-        setBuying(null);
+      }, 5000); // Increased wait time
+
+    } catch (error: unknown) {
+      console.error("Purchase failed:", error);
+      
+      let errorMessage = "Purchase failed. Please try again.";
+      
+      if (typeof error === "object" && error !== null) {
+        // @ts-expect-error: error might have code/message
+        if (error.code === 4001) {
+          errorMessage = "Transaction was rejected by user.";
+        // @ts-expect-error: error might have code
+        } else if (error.code === -32002) {
+          errorMessage = "Please check MetaMask - there may be a pending request.";
+        // @ts-expect-error: error might have code  
+        } else if (error.code === 4100) {
+          errorMessage = "Please connect your wallet and authorize this app.";
+        // @ts-expect-error: error might have message
+        } else if (typeof error.message === "string" && error.message.includes("insufficient")) {
+          errorMessage = "Insufficient funds for transaction.";
+        // @ts-expect-error: error might have message
+        } else if (typeof error.message === "string" && error.message.includes("gas")) {
+          errorMessage = "Gas estimation failed. Please try again.";
+        // @ts-expect-error: error might have message
+        } else if (typeof error.message === "string" && error.message.includes("authorized")) {
+          errorMessage = "Wallet not properly connected. Please reconnect your wallet.";
+        }
       }
-    },
-    [isConnected, connectedAddress, refetch]
-  );
+      
+      alert(errorMessage);
+      setTxStatus(prev => {
+        const newStatus = { ...prev };
+        delete newStatus[pic.id];
+        return newStatus;
+      });
+    } finally {
+      setBuying(null);
+    }
+  },
+  [isConnected, connectedAddress, refetch]
+);
 
   const isFrameAdded = useMemo(() => {
     return context?.client?.added ?? false;
