@@ -19,6 +19,50 @@ import {
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
 import { useEffect, useMemo, useState, useCallback } from "react";
+import Image from "next/image";
+
+// Mock gallery data
+const PICTURES = [
+  {
+    id: "1",
+    src: "/pictures/pic1.jpg",
+    title: "Sunset Overdrive",
+    priceUSDC: 5,
+  },
+  {
+    id: "2",
+    src: "/pictures/pic2.jpg",
+    title: "Ocean Calm",
+    priceUSDC: 8,
+  },
+  {
+    id: "3",
+    src: "/pictures/pic3.jpg",
+    title: "City Lights",
+    priceUSDC: 10,
+  },
+];
+
+// Purchase tracking using localStorage
+function usePurchaseTracking() {
+  const [purchased, setPurchased] = useState<{[picId: string]: boolean}>({});
+  const storageKey = "purchased_pics_AardsEngel"; // Using provided username
+
+  useEffect(() => {
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      setPurchased(JSON.parse(stored));
+    }
+  }, []);
+
+  const recordPurchase = (picId: string) => {
+    const updated = { ...purchased, [picId]: true };
+    setPurchased(updated);
+    localStorage.setItem(storageKey, JSON.stringify(updated));
+  };
+
+  return { purchased, recordPurchase };
+}
 
 export default function App() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
@@ -26,6 +70,10 @@ export default function App() {
 
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
+
+  // Gallery state
+  const [buying, setBuying] = useState<string | null>(null);
+  const { purchased, recordPurchase } = usePurchaseTracking();
 
   useEffect(() => {
     if (!isFrameReady) {
@@ -37,6 +85,14 @@ export default function App() {
     const frameAdded = await addFrame();
     setFrameAdded(Boolean(frameAdded));
   }, [addFrame]);
+
+  const handlePurchase = useCallback(async (picId: string) => {
+    setBuying(picId);
+    // Simulate payment processing
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    recordPurchase(picId);
+    setBuying(null);
+  }, [recordPurchase]);
 
   const saveFrameButton = useMemo(() => {
     if (context && !context.client.added) {
@@ -69,7 +125,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen font-sans text-[var(--app-foreground)] bg-gradient-to-b from-[var(--app-background)] to-[var(--app-gray)]">
-      <div className="w-full max-w-md mx-auto px-4 py-3">
+      <div className="w-full max-w-2xl mx-auto px-4 py-3">
         {/* Header */}
         <header className="flex justify-between items-center mb-6 h-11">
           <div>
@@ -93,50 +149,45 @@ export default function App() {
 
         {/* Main Content */}
         <main className="flex-1 space-y-6">
-          {/* Welcome Card */}
-          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-6">
-            <h1 className="text-2xl font-bold text-[var(--app-foreground)] mb-2">
-              Welcome to Your MiniKit App
-            </h1>
-            <p className="text-[var(--app-foreground-muted)] mb-4">
-              This is your starting point for building amazing Farcaster frames with MiniKit and OnchainKit.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <span className="px-3 py-1 bg-[var(--app-accent-light)] text-[var(--app-accent)] rounded-full text-sm font-medium">
-                MiniKit
-              </span>
-              <span className="px-3 py-1 bg-[var(--app-accent-light)] text-[var(--app-accent)] rounded-full text-sm font-medium">
-                OnchainKit
-              </span>
-              <span className="px-3 py-1 bg-[var(--app-accent-light)] text-[var(--app-accent)] rounded-full text-sm font-medium">
-                Next.js
-              </span>
-            </div>
-          </div>
-
-          {/* Getting Started Card */}
-          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-6">
-            <h2 className="text-lg font-semibold text-[var(--app-foreground)] mb-3">
-              Ready to Build?
-            </h2>
-            <ul className="space-y-2 text-[var(--app-foreground-muted)]">
-              <li className="flex items-start">
-                <span className="text-[var(--app-accent)] mr-2">•</span>
-                Edit <code className="bg-[var(--app-gray)] px-2 py-1 rounded text-sm">app/page.tsx</code> to customize this page
-              </li>
-              <li className="flex items-start">
-                <span className="text-[var(--app-accent)] mr-2">•</span>
-                Add your components in <code className="bg-[var(--app-gray)] px-2 py-1 rounded text-sm">app/components/</code>
-              </li>
-              <li className="flex items-start">
-                <span className="text-[var(--app-accent)] mr-2">•</span>
-                Customize your theme in <code className="bg-[var(--app-gray)] px-2 py-1 rounded text-sm">app/theme.css</code>
-              </li>
-              <li className="flex items-start">
-                <span className="text-[var(--app-accent)] mr-2">•</span>
-                Check the README.md for detailed instructions
-              </li>
-            </ul>
+          {/* Gallery Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            {PICTURES.map(pic => {
+              const isUnlocked = purchased[pic.id];
+              return (
+                <div key={pic.id} className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4">
+                  <div className="relative aspect-square mb-4">
+                    <Image
+                      src={pic.src}
+                      alt={pic.title}
+                      fill
+                      className={`rounded-lg object-cover transition-all duration-500 ${
+                        isUnlocked ? "" : "blur-lg brightness-50"
+                      }`}
+                    />
+                    {!isUnlocked && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="bg-black/70 text-white px-3 py-1 rounded-full text-sm">
+                          Locked
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{pic.title}</h3>
+                  {isUnlocked ? (
+                    <div className="text-green-500 font-medium">✓ Purchased</div>
+                  ) : (
+                    <button
+                      onClick={() => handlePurchase(pic.id)}
+                      disabled={buying === pic.id}
+                      className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
+                        ${buying === pic.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--app-accent-hover)]'}`}
+                    >
+                      {buying === pic.id ? 'Processing...' : `Buy for ${pic.priceUSDC} USDC`}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Status Card */}
