@@ -123,6 +123,14 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
+/* ------- MiniKit Context Type ------- */
+type MiniKitContext = {
+  client?: {
+    accounts?: string[];
+    added?: boolean;
+  };
+};
+
 /* ------- HOOK: Onchain Ownership ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
@@ -167,39 +175,17 @@ function usePhotoOwnership(userAddress: string | undefined) {
   return ownedPhotos;
 }
 
-/* ------- HOOK: Get connected address from wallet UI ------- */
-function useConnectedAddress(): string | undefined {
-  // This uses the DOM to read the address from the wallet UI after connection.
-  // It is a workaround for MiniKit/OnchainKit not exporting a proper hook.
-  // It works for most common dapp/OnchainKit setups.
-  const [address, setAddress] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    // Try to read from window.ethereum if available
-    async function fetchAddress() {
-      if (typeof window !== "undefined" && window.ethereum) {
-        try {
-          const accounts = await window.ethereum.request({ method: "eth_accounts" });
-          setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
-        } catch {
-          setAddress(undefined);
-        }
-      }
-    }
-    fetchAddress();
-
-    // Listen for wallet changes
-    if (typeof window !== "undefined" && window.ethereum) {
-      const handler = (accounts: string[]) =>
-        setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
-      window.ethereum.on("accountsChanged", handler);
-      return () => {
-        window.ethereum.removeListener("accountsChanged", handler);
-      };
-    }
-  }, []);
-
-  return address;
+/* ------- HOOK: Get connected address from MiniKit context ------- */
+function useConnectedAddressFromContext(context: MiniKitContext | null): string | undefined {
+  if (
+    context &&
+    context.client &&
+    Array.isArray(context.client.accounts) &&
+    context.client.accounts.length > 0
+  ) {
+    return context.client.accounts[0];
+  }
+  return undefined;
 }
 
 /* ---------------- MAIN COMPONENT ---------------- */
@@ -209,8 +195,8 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Use our workaround hook to get the connected address
-  const userAddress = useConnectedAddress();
+  // Accept context as possibly null to match useMiniKit() return type
+  const userAddress = useConnectedAddressFromContext(context);
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
