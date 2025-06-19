@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
 /* ---------- CONTRACT CONSTANTS ---------- */
-const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS"; // Set to "" or your address
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
 const PICTURES = [
@@ -161,7 +161,14 @@ function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    if (!userAddress || typeof window === "undefined" || !window.ethereum) return;
+    if (
+      !userAddress ||
+      !CONTRACT_ADDRESS ||
+      CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS" ||
+      typeof window === "undefined" ||
+      !window.ethereum
+    )
+      return;
     let cancelled = false;
     (async () => {
       const owned: Record<string, boolean> = {};
@@ -216,8 +223,16 @@ export default function App() {
   // USDC approval + contract purchase with window.ethereum.request
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
-      if (!userAddress || typeof window === "undefined" || !window.ethereum) {
+      if (!userAddress) {
         alert("Please connect your wallet first using the button at the top right.");
+        return;
+      }
+      if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS") {
+        alert("The contract is not deployed or not configured.");
+        return;
+      }
+      if (typeof window === "undefined" || !window.ethereum) {
+        alert("No Ethereum provider found.");
         return;
       }
       setBuying(pic.id);
@@ -326,6 +341,21 @@ export default function App() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {PICTURES.map((pic) => {
               const isUnlocked = ownedPhotos[pic.id];
+
+              // Button text and enabled state logic:
+              let buttonText = `Buy for ${pic.priceUSDC} USDC`;
+              let buttonDisabled = false;
+              if (!userAddress) {
+                buttonText = "Connect Wallet to Buy";
+                buttonDisabled = true;
+              } else if (!CONTRACT_ADDRESS || CONTRACT_ADDRESS === "YOUR_DEPLOYED_CONTRACT_ADDRESS") {
+                buttonText = "Contract not deployed";
+                buttonDisabled = true;
+              } else if (buying === pic.id) {
+                buttonText = "Processing...";
+                buttonDisabled = true;
+              }
+
               return (
                 <div
                   key={pic.id}
@@ -354,13 +384,11 @@ export default function App() {
                   ) : (
                     <button
                       onClick={() => handlePurchase(pic)}
-                      disabled={buying === pic.id}
+                      disabled={buttonDisabled}
                       className={`w-full px-4 py-2 bg-[var(--app-accent)] text-white rounded-lg 
-                        ${buying === pic.id ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-accent-hover)]"}`}
+                        ${buttonDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--app-accent-hover)]"}`}
                     >
-                      {buying === pic.id
-                        ? "Processing..."
-                        : `Buy for ${pic.priceUSDC} USDC`}
+                      {buttonText}
                     </button>
                   )}
                 </div>
