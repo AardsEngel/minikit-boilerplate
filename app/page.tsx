@@ -22,7 +22,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 
 /* ---------- CONTRACT CONSTANTS ---------- */
-const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS"; // Set to "" or your address
+const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
 const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 
 const PICTURES = [
@@ -124,36 +124,33 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
-/* --------- USER ADDRESS HOOK FROM MINIKIT CLIENT --------- */
-function useMiniKitAddress(context: unknown): string | undefined {
-  if (
-    context &&
-    typeof context === "object" &&
-    "client" in context &&
-    (context as { client?: unknown }).client &&
-    typeof (context as { client: unknown }).client === "object"
-  ) {
-    const client = (context as { client: Record<string, unknown> }).client;
-    if (typeof client.address === "string" && client.address.length === 42) {
-      return client.address;
+/* --------- USE CONNECTED ADDRESS HOOK --------- */
+function useConnectedAddress(): string | undefined {
+  const [address, setAddress] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    async function fetchAddress() {
+      if (typeof window !== "undefined" && window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: "eth_accounts" });
+          setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
+        } catch {
+          setAddress(undefined);
+        }
+      }
     }
-    if (typeof client.selectedAddress === "string" && client.selectedAddress.length === 42) {
-      return client.selectedAddress;
+    fetchAddress();
+    if (typeof window !== "undefined" && window.ethereum) {
+      const handler = (accounts: string[]) =>
+        setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
+      window.ethereum.on("accountsChanged", handler);
+      return () => {
+        window.ethereum.removeListener("accountsChanged", handler);
+      };
     }
-    if (Array.isArray(client.accounts) && client.accounts.length > 0 && typeof client.accounts[0] === "string") {
-      return client.accounts[0];
-    }
-  }
-  if (
-    context &&
-    typeof context === "object" &&
-    "address" in context &&
-    typeof (context as { address?: unknown }).address === "string" &&
-    ((context as { address?: string }).address?.length ?? 0) === 42
-  ) {
-    return (context as { address: string }).address;
-  }
-  return undefined;
+  }, []);
+
+  return address;
 }
 
 /* ------- HOOK: Onchain Ownership ------- */
@@ -207,7 +204,8 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  const userAddress = useMiniKitAddress(context);
+  // Use global wallet address, not MiniKit context
+  const userAddress = useConnectedAddress();
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
