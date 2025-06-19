@@ -167,6 +167,41 @@ function usePhotoOwnership(userAddress: string | undefined) {
   return ownedPhotos;
 }
 
+/* ------- HOOK: Get connected address from wallet UI ------- */
+function useConnectedAddress(): string | undefined {
+  // This uses the DOM to read the address from the wallet UI after connection.
+  // It is a workaround for MiniKit/OnchainKit not exporting a proper hook.
+  // It works for most common dapp/OnchainKit setups.
+  const [address, setAddress] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    // Try to read from window.ethereum if available
+    async function fetchAddress() {
+      if (typeof window !== "undefined" && window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: "eth_accounts" });
+          setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
+        } catch {
+          setAddress(undefined);
+        }
+      }
+    }
+    fetchAddress();
+
+    // Listen for wallet changes
+    if (typeof window !== "undefined" && window.ethereum) {
+      const handler = (accounts: string[]) =>
+        setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
+      window.ethereum.on("accountsChanged", handler);
+      return () => {
+        window.ethereum.removeListener("accountsChanged", handler);
+      };
+    }
+  }, []);
+
+  return address;
+}
+
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
@@ -174,16 +209,8 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // The correct way to get the address for MiniKit:
-  // - If your version of MiniKit/OnchainKit stores it differently, check the object shape in your console.
-  const userAddress =
-    (context?.client &&
-      typeof context.client === "object" &&
-      "address" in context.client &&
-      typeof (context.client as { address?: string }).address === "string"
-      ? (context.client as { address?: string }).address
-      : undefined);
-
+  // Use our workaround hook to get the connected address
+  const userAddress = useConnectedAddress();
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
@@ -196,7 +223,6 @@ export default function App() {
     setFrameAdded(Boolean(frameAdded));
   }, [addFrame]);
 
-  // USDC approval + contract purchase with window.ethereum.request
   const handlePurchase = useCallback(
     async (pic: typeof PICTURES[number]) => {
       if (!userAddress) {
