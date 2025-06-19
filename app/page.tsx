@@ -7,7 +7,6 @@ import {
 } from "@coinbase/onchainkit/minikit";
 import {
   Name,
-  Identity,
   Address,
   Avatar,
   EthBalance,
@@ -124,35 +123,6 @@ async function encodeFunctionCall(
   return selector + encodedArgs;
 }
 
-/* --------- USE CONNECTED ADDRESS HOOK --------- */
-function useConnectedAddress(): string | undefined {
-  const [address, setAddress] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    async function fetchAddress() {
-      if (typeof window !== "undefined" && window.ethereum) {
-        try {
-          const accounts = await window.ethereum.request({ method: "eth_accounts" });
-          setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
-        } catch {
-          setAddress(undefined);
-        }
-      }
-    }
-    fetchAddress();
-    if (typeof window !== "undefined" && window.ethereum) {
-      const handler = (accounts: string[]) =>
-        setAddress(accounts && accounts.length > 0 ? accounts[0] : undefined);
-      window.ethereum.on("accountsChanged", handler);
-      return () => {
-        window.ethereum.removeListener("accountsChanged", handler);
-      };
-    }
-  }, []);
-
-  return address;
-}
-
 /* ------- HOOK: Onchain Ownership ------- */
 function usePhotoOwnership(userAddress: string | undefined) {
   const [ownedPhotos, setOwnedPhotos] = useState<Record<string, boolean>>({});
@@ -204,8 +174,16 @@ export default function App() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
 
-  // Use global wallet address, not MiniKit context
-  const userAddress = useConnectedAddress();
+  // The correct way to get the address for MiniKit:
+  // - If your version of MiniKit/OnchainKit stores it differently, check the object shape in your console.
+  const userAddress =
+    (context?.client &&
+      typeof context.client === "object" &&
+      "address" in context.client &&
+      typeof (context.client as { address?: string }).address === "string"
+      ? (context.client as { address?: string }).address
+      : undefined);
+
   const ownedPhotos = usePhotoOwnership(userAddress);
   const [buying, setBuying] = useState<string | null>(null);
 
@@ -320,12 +298,10 @@ export default function App() {
                 <Name className="text-inherit" />
               </ConnectWallet>
               <WalletDropdown>
-                <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
-                  <Avatar />
-                  <Name />
-                  <Address />
-                  <EthBalance />
-                </Identity>
+                <Avatar />
+                <Name />
+                <Address />
+                <EthBalance />
                 <WalletDropdownDisconnect />
               </WalletDropdown>
             </Wallet>
