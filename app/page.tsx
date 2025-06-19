@@ -28,6 +28,7 @@ const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
 // IPFS Gateway - using only Pinata for consistency
 const IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
 
+
 // Photo data - make sure these IPFS hashes are correct
 const PICTURES = [
   {
@@ -778,7 +779,6 @@ function PhotoCard({
           <Image
             src={imageUrl}
             alt={pic.title}
-            fill
             className={`rounded-lg object-cover transition-all duration-500 ${
               isUnlocked ? "" : "blur-sm brightness-75"
             }`}
