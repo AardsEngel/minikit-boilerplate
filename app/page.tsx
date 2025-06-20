@@ -2,8 +2,6 @@
 
 import {
   useMiniKit,
-  useAddFrame,
-  useOpenUrl,
 } from "@coinbase/onchainkit/minikit";
 import {
   Name,
@@ -26,7 +24,7 @@ import {
 } from '@coinbase/onchainkit/transaction';
 import type { LifecycleStatus } from '@coinbase/onchainkit/transaction';
 import { useAccount } from "wagmi";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 
 
@@ -358,12 +356,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
 
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
-  const { setFrameReady, isFrameReady, context } = useMiniKit();
-  const [frameAdded, setFrameAdded] = useState(false);
-  const [addFrameLoading, setAddFrameLoading] = useState(false);
-  const addFrame = useAddFrame();
-  const openUrl = useOpenUrl();
-
+  const { setFrameReady, isFrameReady } = useMiniKit();
   const { address: connectedAddress, isConnected } = useAccount();
   
   const { ownedPhotos, fullImageHashes, loading: ownershipLoading, refetch } = usePhotoOwnership(connectedAddress);
@@ -376,130 +369,86 @@ export default function App() {
     }
   }, [setFrameReady, isFrameReady]);
 
-  const handleAddFrame = useCallback(async () => {
-    if (addFrameLoading) return;
+  const createPurchaseCalls = useCallback(async (pic: typeof PICTURES[number]): Promise<Array<{
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: bigint;
+  }>> => {
+    const usdcAmount = BigInt(pic.priceUSDC) * BigInt(1_000_000);
     
-    setAddFrameLoading(true);
-    try {
-      const result = await addFrame();
-      setFrameAdded(Boolean(result));
-    } catch (error) {
-      console.error("Failed to add frame:", error);
-    } finally {
-      setAddFrameLoading(false);
-    }
-  }, [addFrame, addFrameLoading]);
+    return [
+      // Step 1: Approve USDC
+      {
+        to: USDC_ADDRESS as `0x${string}`,
+        data: await encodeFunctionCall(USDC_ABI, "approve", [CONTRACT_ADDRESS, usdcAmount.toString()]) as `0x${string}`,
+        value: BigInt(0),
+      },
+      // Step 2: Purchase photo
+      {
+        to: CONTRACT_ADDRESS as `0x${string}`,
+        data: await encodeFunctionCall(MARKETPLACE_ABI, "purchasePhoto", [pic.tokenId]) as `0x${string}`,
+        value: BigInt(0),
+      },
+    ];
+  }, []);
 
-const createPurchaseCalls = useCallback(async (pic: typeof PICTURES[number]): Promise<Array<{
-  to: `0x${string}`;
-  data: `0x${string}`;
-  value: bigint;
-}>> => {
-  const usdcAmount = BigInt(pic.priceUSDC) * BigInt(1_000_000);
-  
-  return [
-    // Step 1: Approve USDC
-    {
-      to: USDC_ADDRESS as `0x${string}`,
-      data: await encodeFunctionCall(USDC_ABI, "approve", [CONTRACT_ADDRESS, usdcAmount.toString()]) as `0x${string}`,
-      value: BigInt(0),
-    },
-    // Step 2: Purchase photo
-    {
-      to: CONTRACT_ADDRESS as `0x${string}`,
-      data: await encodeFunctionCall(MARKETPLACE_ABI, "purchasePhoto", [pic.tokenId]) as `0x${string}`,
-      value: BigInt(0),
-    },
-  ];
-}, []);
-
-const handleTransactionStatus = useCallback((status: LifecycleStatus, picId: string) => {
-  console.log('Transaction status:', status);
-  
-  switch (status.statusName) {
-    case 'transactionIdle':
-      setTxStatus(prev => ({ ...prev, [picId]: "Ready to purchase..." }));
-      break;
-    case 'buildingTransaction':
-      setTxStatus(prev => ({ ...prev, [picId]: "Preparing transaction..." }));
-      break;
-    case 'transactionPending':
-      setTxStatus(prev => ({ ...prev, [picId]: "Transaction pending..." }));
-      break;
-    case 'success':
-      setTxStatus(prev => ({ ...prev, [picId]: "Purchase successful!" }));
-      setTimeout(() => {
-        refetch(); // This is fine to use directly since it's in scope
+  const handleTransactionStatus = useCallback((status: LifecycleStatus, picId: string) => {
+    console.log('Transaction status:', status);
+    
+    switch (status.statusName) {
+      case 'transactionIdle':
+        setTxStatus(prev => ({ ...prev, [picId]: "Ready to purchase..." }));
+        setBuying(null); // Clear buying state when idle
+        break;
+      case 'buildingTransaction':
+        setTxStatus(prev => ({ ...prev, [picId]: "Preparing transaction..." }));
+        setBuying(picId);
+        break;
+      case 'transactionPending':
+        setTxStatus(prev => ({ ...prev, [picId]: "Transaction pending..." }));
+        break;
+      case 'success':
+        setTxStatus(prev => ({ ...prev, [picId]: "Purchase successful!" }));
+        setTimeout(() => {
+          refetch();
+          setTxStatus(prev => {
+            const newStatus = { ...prev };
+            delete newStatus[picId];
+            return newStatus;
+          });
+          setBuying(null);
+        }, 2000);
+        break;
+      case 'error':
+        console.error('Transaction error:', status.statusData);
+        // Clear the status and buying state immediately on error
         setTxStatus(prev => {
           const newStatus = { ...prev };
           delete newStatus[picId];
           return newStatus;
         });
         setBuying(null);
-      }, 2000);
-      break;
-    case 'error':
-      console.error('Transaction error:', status.statusData);
-      setTxStatus(prev => {
-        const newStatus = { ...prev };
-        delete newStatus[picId];
-        return newStatus;
-      });
-      setBuying(null);
-      break;
-  }
-}, [refetch])
-
-// Transaction success handler
-const handleTransactionSuccess = useCallback((response: unknown, picId: string) => {
-  console.log(`Transaction successful for ${picId}:`, response);
-  // The status handler will take care of the rest
-}, []);
-
-// Transaction error handler
-const handleTransactionError = useCallback((error: unknown, picId: string) => {
-  console.error(`Transaction failed for ${picId}:`, error);
-  let errorMessage = 'Unknown error';
-  if (error && typeof error === 'object' && 'message' in error) {
-    errorMessage = String(error.message);
-  }
-  alert(`Purchase failed for ${picId}: ${errorMessage}`);
-  setBuying(null);
-}, []);
-
-  const isFrameAdded = useMemo(() => {
-    return context?.client?.added ?? false;
-  }, [context]);
-
-  const saveFrameButton = useMemo(() => {
-    if (!isFrameAdded && !frameAdded) {
-      return (
-        <button
-          onClick={handleAddFrame}
-          disabled={addFrameLoading}
-          className="flex items-center space-x-1 text-sm font-medium text-[var(--app-accent)] hover:text-[var(--app-accent-hover)] transition-colors p-2 disabled:opacity-50"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          <span>{addFrameLoading ? "Saving..." : "Save Frame"}</span>
-        </button>
-      );
+        break;
     }
-    
-    if (isFrameAdded || frameAdded) {
-      return (
-        <div className="flex items-center space-x-1 text-sm font-medium text-green-600">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <span>Saved</span>
-        </div>
-      );
-    }
-    
-    return null;
-  }, [isFrameAdded, frameAdded, handleAddFrame, addFrameLoading]);
+  }, [refetch]);
+
+  // Transaction success handler
+  const handleTransactionSuccess = useCallback((response: unknown, picId: string) => {
+    console.log(`Transaction successful for ${picId}:`, response);
+    // The status handler will take care of the rest
+  }, []);
+
+  // Transaction error handler
+  const handleTransactionError = useCallback((error: unknown, picId: string) => {
+    console.error(`Transaction failed for ${picId}:`, error);
+    // Clear states immediately on error to prevent stuck UI
+    setTxStatus(prev => {
+      const newStatus = { ...prev };
+      delete newStatus[picId];
+      return newStatus;
+    });
+    setBuying(null);
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen font-sans text-[var(--app-foreground)] bg-gradient-to-b from-[var(--app-background)] to-[var(--app-gray)]">
@@ -527,7 +476,6 @@ const handleTransactionError = useCallback((error: unknown, picId: string) => {
               </div>
             )}
           </div>
-          <div>{saveFrameButton}</div>
         </header>
 
         {/* Connection Status Banner */}
@@ -544,159 +492,58 @@ const handleTransactionError = useCallback((error: unknown, picId: string) => {
           </div>
         )}
 
-        {/* Debug Info */}
-        {isConnected && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="text-xs text-blue-800">
-              <div>Contract: {CONTRACT_ADDRESS}</div>
-              <div>Connected Address: {connectedAddress}</div>
-              <div>IPFS Gateway: {IPFS_GATEWAY}</div>
-            </div>
-          </div>
-        )}
-
         {/* Main Content */}
         <main className="flex-1 space-y-6">
           {/* Gallery Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-  {PICTURES.map((pic) => {
-    const isUnlocked = ownedPhotos[pic.id];
-    const isProcessing = buying === pic.id;
-    const status = txStatus[pic.id];
-    
-    // Determine which image to show
-    const imageHash = isUnlocked ? fullImageHashes[pic.id] : pic.previewIpfsHash;
-
-    // Enhanced button logic
-    let buttonText: string;
-    let buttonDisabled = false;
-    let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
-
-    if (!isConnected) {
-      buttonText = "Connect Wallet to Buy";
-      buttonDisabled = true;
-      buttonColor = "bg-gray-400";
-    } else if (isProcessing) {
-      buttonText = status || "Processing...";
-      buttonDisabled = true;
-      buttonColor = "bg-blue-500";
-    } else if (isUnlocked) {
-      buttonText = "✓ Purchased";
-      buttonDisabled = true;
-      buttonColor = "bg-green-500";
-    } else {
-      buttonText = `Buy for ${pic.priceUSDC} USDC`;
-    }
-
-    return (
-      <PhotoCard
-  key={pic.id}
-  pic={pic}
-  imageHash={imageHash}
-  isUnlocked={isUnlocked}
-  ownershipLoading={ownershipLoading}
-  buttonText={buttonText}
-  buttonDisabled={buttonDisabled}
-  buttonColor={buttonColor}
-  createPurchaseCalls={createPurchaseCalls}
-  handleTransactionStatus={handleTransactionStatus}
-  handleTransactionSuccess={handleTransactionSuccess}
-  handleTransactionError={handleTransactionError}
-/>
-    );
-  })}
-</div>
-
-          {/* Enhanced Status Card */}
-          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-6">
-            <h3 className="text-lg font-semibold text-[var(--app-foreground)] mb-4">
-              App Status
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--app-foreground-muted)]">MiniKit Ready:</span>
-                  <span className={`font-medium flex items-center space-x-1 ${
-                    isFrameReady ? "text-green-600" : "text-yellow-600"
-                  }`}>
-                    {isFrameReady ? (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>Ready</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-4 h-4 border-2 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
-                        <span>Loading...</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--app-foreground-muted)]">Wallet Connected:</span>
-                  <span className={`font-medium flex items-center space-x-1 ${
-                    isConnected ? "text-green-600" : "text-gray-500"
-                  }`}>
-                    {isConnected ? (
-                      <>
-                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span>Yes</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                        <span>No</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-              </div>
+            {PICTURES.map((pic) => {
+              const isUnlocked = ownedPhotos[pic.id];
+              const isProcessing = buying === pic.id;
+              const status = txStatus[pic.id];
               
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--app-foreground-muted)]">Frame Added:</span>
-                  <span className={`font-medium flex items-center space-x-1 ${
-                    (isFrameAdded || frameAdded) ? "text-green-600" : "text-gray-500"
-                  }`}>
-                    {(isFrameAdded || frameAdded) ? (
-                      <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>Added</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-4 h-4 border border-gray-400 rounded"></div>
-                        <span>Not Added</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-                
-                <div className="flex justify-between items-center">
-                  <span className="text-[var(--app-foreground-muted)]">Contract:</span>
-                  <span className="font-medium text-xs text-green-600">
-                    {CONTRACT_ADDRESS ? "Deployed" : "Not set"}
-                  </span>
-                </div>
-              </div>
-            </div>
+              // Determine which image to show
+              const imageHash = isUnlocked ? fullImageHashes[pic.id] : pic.previewIpfsHash;
+
+              // Enhanced button logic
+              let buttonText: string;
+              let buttonDisabled = false;
+              let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
+
+              if (!isConnected) {
+                buttonText = "Connect Wallet to Buy";
+                buttonDisabled = true;
+                buttonColor = "bg-gray-400";
+              } else if (isProcessing) {
+                buttonText = status || "Processing...";
+                buttonDisabled = true;
+                buttonColor = "bg-blue-500";
+              } else if (isUnlocked) {
+                buttonText = "✓ Purchased";
+                buttonDisabled = true;
+                buttonColor = "bg-green-500";
+              } else {
+                buttonText = `Buy for ${pic.priceUSDC} USDC`;
+              }
+
+              return (
+                <PhotoCard
+                  key={pic.id}
+                  pic={pic}
+                  imageHash={imageHash}
+                  isUnlocked={isUnlocked}
+                  ownershipLoading={ownershipLoading}
+                  buttonText={buttonText}
+                  buttonDisabled={buttonDisabled}
+                  buttonColor={buttonColor}
+                  createPurchaseCalls={createPurchaseCalls}
+                  handleTransactionStatus={handleTransactionStatus}
+                  handleTransactionSuccess={handleTransactionSuccess}
+                  handleTransactionError={handleTransactionError}
+                />
+              );
+            })}
           </div>
         </main>
-
-        {/* Footer */}
-        <footer className="mt-8 pt-4 flex justify-center">
-          <button
-            className="text-[var(--app-foreground-muted)] text-xs hover:text-[var(--app-accent)] transition-colors"
-            onClick={() => openUrl("https://base.org/builders/minikit")}
-          >
-            Built with MiniKit on Base
-          </button>
-        </footer>
       </div>
     </div>
   );
