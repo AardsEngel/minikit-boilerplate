@@ -477,15 +477,15 @@ export default function App() {
 
       <div className="relative z-10 w-full max-w-4xl mx-auto px-4 py-6">
         {/* Header with Logo */}
-        <header className="text-center mb-8">
-          <div className="flex flex-col items-center space-y-4">
-            {/* Logo */}
-            <div className="relative">
-              <h1 className="text-4xl md:text-6xl font-bold gradient-text pulse-glow">
-                OnlyMe
-              </h1>
-              <div className="absolute -inset-1 bg-gradient-to-r from-[var(--app-accent)] via-[var(--app-secondary)] to-[var(--app-accent)] rounded-lg blur opacity-30 animate-pulse"></div>
-            </div>
+        <header className="text-left mb-8">
+  <div className="flex flex-col items-start space-y-4">
+    {/* Logo */}
+    <div className="relative">
+      <h1 className="text-4xl md:text-6xl font-bold gradient-text pulse-glow">
+        OnlyMe
+      </h1>
+      <div className="absolute -inset-1 bg-gradient-to-r from-[var(--app-accent)] via-[var(--app-secondary)] to-[var(--app-accent)] rounded-lg blur opacity-30 animate-pulse"></div>
+    </div>
             
             {/* Subtitle */}
             <p className="text-[var(--app-foreground-muted)] text-lg md:text-xl max-w-md">
