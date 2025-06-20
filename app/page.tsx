@@ -454,6 +454,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[var(--app-background)] via-[var(--app-gray)] to-black">
+      <div className="fixed top-4 right-4 z-50">
+      <Wallet>
+        <ConnectWallet className="bg-[var(--app-card-bg)] backdrop-blur-md border border-[var(--app-card-border)] text-[var(--app-foreground)] px-4 py-2 rounded-xl font-medium hover:bg-[var(--app-accent)] hover:text-white transition-all duration-300 shadow-lg">
+          <Avatar className="h-5 w-5" />
+          <Name className="text-inherit" />
+        </ConnectWallet>
+        <WalletDropdown>
+          <Avatar />
+          <Name />
+          <Address />
+          <EthBalance />
+          <WalletDropdownDisconnect />
+        </WalletDropdown>
+      </Wallet>
+    </div>
       {/* Animated background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-[var(--app-accent)] rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
