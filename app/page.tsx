@@ -41,18 +41,20 @@ const PICTURES = [
   {
     id: "1",
     tokenId: 0,
-    title: "Boobs",
+    title: "Exclusive Content",
     priceUSDC: 5,
     previewIpfsHash: "bafybeifenrhlwmwdnpavvorzop74f6kj7t3nkxta4m37vbgeysbpboikii",
     fullIpfsHash: "bafybeif6wwnwy22eh2zc7gafzuixkgv466m2ok3rquopxsb4kfigdtpp3m",
+    description: "Premium exclusive content",
   },
   {
     id: "2",
     tokenId: 2,
-    title: "Full Body",
+    title: "VIP Collection",
     priceUSDC: 10,
     previewIpfsHash: "bafkreidvjecoqtdml4utim66gswvbdonumn6ywwmduayhhkruievhsqz2i",
-    fullIpfsHash: "bafybeihyb2jqs3m4jbcpx3bbxaedeuj54nypp2p7ffysn36p6oz6ws3kdi", 
+    fullIpfsHash: "bafybeihyb2jqs3m4jbcpx3bbxaedeuj54nypp2p7ffysn36p6oz6ws3kdi",
+    description: "High-quality VIP content",
   },
 ];
 
@@ -357,7 +359,7 @@ function usePhotoOwnership(userAddress: string | undefined) {
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
   const { setFrameReady, isFrameReady } = useMiniKit();
-  const { address: connectedAddress, isConnected } = useAccount();
+  const { address: connectedAddress } = useAccount();
   
   const { ownedPhotos, fullImageHashes, loading: ownershipLoading, refetch } = usePhotoOwnership(connectedAddress);
   const [buying, setBuying] = useState<string | null>(null);
@@ -451,12 +453,37 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex flex-col min-h-screen font-sans text-[var(--app-foreground)] bg-gradient-to-b from-[var(--app-background)] to-[var(--app-gray)]">
-      <div className="w-full max-w-2xl mx-auto px-4 py-3">
-        {/* Header */}
-        <header className="flex justify-between items-center mb-6 h-11">
-          <div className="flex items-center space-x-3">
-            <Wallet className="z-10">
+    <div className="min-h-screen bg-gradient-to-br from-[var(--app-background)] via-[var(--app-gray)] to-black">
+      {/* Animated background elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-[var(--app-accent)] rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-[var(--app-secondary)] rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse delay-1000"></div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-4 py-6">
+        {/* Header with Logo */}
+        <header className="text-center mb-8">
+          <div className="flex flex-col items-center space-y-4">
+            {/* Logo */}
+            <div className="relative">
+              <h1 className="text-4xl md:text-6xl font-bold gradient-text pulse-glow">
+                OnlyMe
+              </h1>
+              <div className="absolute -inset-1 bg-gradient-to-r from-[var(--app-accent)] via-[var(--app-secondary)] to-[var(--app-accent)] rounded-lg blur opacity-30 animate-pulse"></div>
+            </div>
+            
+            {/* Subtitle */}
+            <p className="text-[var(--app-foreground-muted)] text-lg md:text-xl max-w-md">
+              Exclusive Premium Content on the Blockchain
+            </p>
+            
+            {/* Decorative line */}
+            <div className="w-32 h-1 bg-gradient-to-r from-transparent via-[var(--app-accent)] to-transparent"></div>
+          </div>
+
+          {/* Hidden wallet connection (for Farcaster mini-app auto-connection) */}
+          <div className="hidden">
+            <Wallet>
               <ConnectWallet>
                 <Avatar className="h-6 w-6" />
                 <Name className="text-inherit" />
@@ -469,33 +496,45 @@ export default function App() {
                 <WalletDropdownDisconnect />
               </WalletDropdown>
             </Wallet>
-            {isConnected && (
-              <div className="flex items-center space-x-1 text-xs text-green-600">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Connected</span>
-              </div>
-            )}
           </div>
         </header>
 
-        {/* Connection Status Banner */}
-        {!isConnected && (
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              <span className="text-yellow-800 text-sm">
-                Connect your wallet to purchase photos and unlock the full experience
-              </span>
-            </div>
+        {/* Stats Section */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl border border-[var(--app-card-border)] p-4 text-center">
+            <div className="text-2xl font-bold text-[var(--app-accent)]">{PICTURES.length}</div>
+            <div className="text-sm text-[var(--app-foreground-muted)]">Collections</div>
           </div>
-        )}
+          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl border border-[var(--app-card-border)] p-4 text-center">
+            <div className="text-2xl font-bold text-[var(--app-accent)]">
+              {Object.values(ownedPhotos).filter(Boolean).length}
+            </div>
+            <div className="text-sm text-[var(--app-foreground-muted)]">Owned</div>
+          </div>
+          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl border border-[var(--app-card-border)] p-4 text-center">
+            <div className="text-2xl font-bold text-[var(--app-accent)]">💎</div>
+            <div className="text-sm text-[var(--app-foreground-muted)]">Premium</div>
+          </div>
+          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl border border-[var(--app-card-border)] p-4 text-center">
+            <div className="text-2xl font-bold text-[var(--app-accent)]">🔥</div>
+            <div className="text-sm text-[var(--app-foreground-muted)]">Exclusive</div>
+          </div>
+        </div>
 
         {/* Main Content */}
-        <main className="flex-1 space-y-6">
+        <main className="space-y-8">
+          {/* Section Title */}
+          <div className="text-center">
+            <h2 className="text-2xl md:text-3xl font-bold text-[var(--app-foreground)] mb-2">
+              Premium Gallery
+            </h2>
+            <p className="text-[var(--app-foreground-muted)]">
+              Unlock exclusive content with cryptocurrency
+            </p>
+          </div>
+
           {/* Gallery Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-8">
             {PICTURES.map((pic) => {
               const isUnlocked = ownedPhotos[pic.id];
               const isProcessing = buying === pic.id;
@@ -507,22 +546,18 @@ export default function App() {
               // Enhanced button logic
               let buttonText: string;
               let buttonDisabled = false;
-              let buttonColor = "bg-[var(--app-accent)] hover:bg-[var(--app-accent-hover)]";
+              let buttonColor = "btn-primary";
 
-              if (!isConnected) {
-                buttonText = "Connect Wallet to Buy";
-                buttonDisabled = true;
-                buttonColor = "bg-gray-400";
-              } else if (isProcessing) {
+              if (isProcessing) {
                 buttonText = status || "Processing...";
                 buttonDisabled = true;
-                buttonColor = "bg-blue-500";
+                buttonColor = "bg-blue-500 hover:bg-blue-600";
               } else if (isUnlocked) {
-                buttonText = "✓ Purchased";
+                buttonText = "✨ Unlocked";
                 buttonDisabled = true;
-                buttonColor = "bg-green-500";
+                buttonColor = "bg-green-500 hover:bg-green-600";
               } else {
-                buttonText = `Buy for ${pic.priceUSDC} USDC`;
+                buttonText = `🔓 Unlock for ${pic.priceUSDC} USDC`;
               }
 
               return (
@@ -544,6 +579,21 @@ export default function App() {
             })}
           </div>
         </main>
+
+        {/* Footer */}
+        <footer className="mt-16 text-center">
+          <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl border border-[var(--app-card-border)] p-6">
+            <div className="flex items-center justify-center space-x-2 mb-4">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-sm text-[var(--app-foreground-muted)]">
+                Secured by Blockchain Technology
+              </span>
+            </div>
+            <p className="text-xs text-[var(--app-foreground-muted)]">
+              All content is tokenized and stored on IPFS. Payments processed via USDC on Base network.
+            </p>
+          </div>
+        </footer>
       </div>
     </div>
   );
@@ -568,7 +618,7 @@ interface PhotoCardProps {
   handleTransactionError: (error: unknown, picId: string) => void;
 }
 
-// Updated PhotoCard component
+// Updated PhotoCard component with enhanced UI
 function PhotoCard({
   pic,
   imageHash,
@@ -576,123 +626,168 @@ function PhotoCard({
   ownershipLoading,
   buttonText,
   buttonDisabled,
-  buttonColor,
   createPurchaseCalls,
   handleTransactionStatus,
   handleTransactionSuccess,
   handleTransactionError,
 }: PhotoCardProps) {
   const { imageUrl, loading: imageLoading, error: imageError } = useIPFSImage(imageHash ?? null);
-  const { isConnected } = useAccount();
 
   return (
-    <div className="bg-[var(--app-card-bg)] backdrop-blur-md rounded-xl shadow-lg border border-[var(--app-card-border)] p-4 transition-all duration-300 hover:shadow-xl">
-      <div className="relative aspect-square mb-4">
+    <div className="group bg-[var(--app-card-bg)] backdrop-blur-md rounded-2xl shadow-2xl border border-[var(--app-card-border)] p-6 transition-all duration-500 hover:shadow-3xl card-hover">
+      {/* Card Header */}
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="text-xl font-bold text-[var(--app-foreground)] mb-1">{pic.title}</h3>
+          <p className="text-sm text-[var(--app-foreground-muted)]">{pic.description}</p>
+        </div>
+        <div className="flex flex-col items-end space-y-1">
+          <div className="text-xs text-[var(--app-foreground-muted)] bg-black/20 px-2 py-1 rounded-full">
+            #{pic.tokenId}
+          </div>
+          {ownershipLoading && (
+            <div className="w-4 h-4 border-2 border-[var(--app-accent)] border-t-transparent rounded-full animate-spin"></div>
+          )}
+        </div>
+      </div>
+
+      {/* Image Container */}
+      <div className="relative aspect-[4/5] mb-6 rounded-xl overflow-hidden">
         {imageLoading ? (
-          <div className="w-full h-full rounded-lg bg-gray-200 flex items-center justify-center">
-            <div className="flex flex-col items-center space-y-2">
-              <div className="w-8 h-8 border-2 border-[var(--app-accent)] border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="w-12 h-12 loading-spinner rounded-full"></div>
               <span className="text-sm text-[var(--app-foreground-muted)]">Loading from IPFS...</span>
             </div>
           </div>
         ) : imageError ? (
-          <div className="w-full h-full rounded-lg bg-red-100 flex items-center justify-center">
-            <div className="flex flex-col items-center space-y-2 text-center p-4">
-              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm text-red-600">Failed to load image</span>
-              <span className="text-xs text-red-500">IPFS connection error</span>
+          <div className="w-full h-full bg-gradient-to-br from-red-900/20 to-red-800/20 flex items-center justify-center border-2 border-red-500/20 rounded-xl">
+            <div className="flex flex-col items-center space-y-3 text-center p-6">
+              <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <span className="text-sm text-red-400">Content unavailable</span>
+              <span className="text-xs text-red-500/70">IPFS loading failed</span>
             </div>
           </div>
         ) : imageUrl ? (
-          <Image
-            src={imageUrl}
-            alt={pic.title}
-            className={`rounded-lg object-cover transition-all duration-500 ${
-              isUnlocked ? "" : "blur-sm brightness-75"
-            }`}
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-          />
+          <>
+            <Image
+              src={imageUrl}
+              alt={pic.title}
+              className={`w-full h-full object-cover transition-all duration-700 ${
+                isUnlocked ? "filter-none" : "blur-md brightness-50 saturate-150"
+              }`}
+              fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
+            
+            {/* Overlay effects */}
+            {!isUnlocked && (
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="bg-black/90 backdrop-blur-sm text-white px-6 py-3 rounded-full border border-[var(--app-accent)]/30">
+                    <div className="flex items-center space-x-2">
+                      <svg className="w-5 h-5 text-[var(--app-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      <span className="text-sm font-medium">Exclusive Content</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {isUnlocked && (
+              <div className="absolute top-3 left-3">
+                <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+                  ✨ UNLOCKED
+                </div>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="w-full h-full rounded-lg bg-gray-200 flex items-center justify-center">
-            <span className="text-sm text-[var(--app-foreground-muted)]">No image</span>
-          </div>
-        )}
-        
-        {!isUnlocked && imageUrl && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm">
-              🔒 Preview Only
-            </div>
-          </div>
-        )}
-        
-        {ownershipLoading && (
-          <div className="absolute top-2 right-2">
-            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        )}
-        
-        {isUnlocked && (
-          <div className="absolute top-2 left-2">
-            <div className="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
-              ✓ Owned
+          <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center border-2 border-gray-700 rounded-xl">
+            <div className="flex flex-col items-center space-y-3 text-center p-6">
+              <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <span className="text-sm text-gray-400">Preview Coming Soon</span>
+              <span className="text-xs text-gray-500">Content being uploaded...</span>
             </div>
           </div>
         )}
       </div>
-      
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold">{pic.title}</h3>
-          <div className="text-xs text-[var(--app-foreground-muted)]">
-            Token #{pic.tokenId}
+
+      {/* Price and Rarity Tags */}
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center space-x-2">
+          <div className="bg-gradient-to-r from-[var(--app-accent)] to-[var(--app-secondary)] text-white px-3 py-1 rounded-full text-sm font-bold">
+            {pic.priceUSDC} USDC
+          </div>
+          <div className="bg-black/30 text-[var(--app-accent)] px-2 py-1 rounded-full text-xs font-medium border border-[var(--app-accent)]/20">
+            Premium
           </div>
         </div>
-        
-        {imageHash && (
-          <div className="text-xs text-[var(--app-foreground-muted)] font-mono">
-            IPFS: {imageHash.slice(0, 12)}...{imageHash.slice(-8)}
-          </div>
-        )}
-        
-        {/* Replace the button with Transaction component */}
-        {isUnlocked ? (
-          <button
-            disabled
-            className="w-full px-4 py-2 text-white rounded-lg font-medium bg-green-500 opacity-50 cursor-not-allowed"
-          >
-            ✓ Purchased
-          </button>
-        ) : !isConnected ? (
-          <button
-            disabled
-            className="w-full px-4 py-2 text-white rounded-lg font-medium bg-gray-400 opacity-50 cursor-not-allowed"
-          >
-            Connect Wallet to Buy
-          </button>
-        ) : (
+        <div className="flex items-center space-x-1">
+          <div className="text-[var(--app-accent)] text-lg">🔥</div>
+          <span className="text-xs text-[var(--app-foreground-muted)]">Exclusive</span>
+        </div>
+      </div>
+
+      {/* Action Button */}
+      <div className="space-y-3">
+        {!isUnlocked ? (
           <Transaction
-            calls={async () => await createPurchaseCalls(pic)}
+            calls={createPurchaseCalls(pic)}
             onStatus={(status) => handleTransactionStatus(status, pic.id)}
             onSuccess={(response) => handleTransactionSuccess(response, pic.id)}
             onError={(error) => handleTransactionError(error, pic.id)}
           >
             <TransactionButton
-              className={`w-full px-4 py-2 text-white rounded-lg font-medium transition-all duration-200 ${buttonColor} ${
-                buttonDisabled ? "opacity-50 cursor-not-allowed" : "transform hover:scale-105"
+              className={`w-full py-4 px-6 rounded-xl font-bold text-white transition-all duration-300 ${
+                buttonDisabled 
+                  ? 'bg-gray-600 cursor-not-allowed' 
+                  : 'btn-primary hover:scale-105 active:scale-95'
               }`}
-              text={buttonText}
               disabled={buttonDisabled}
+              text={buttonText}
             />
             <TransactionStatus>
-              <TransactionStatusLabel />
-              <TransactionStatusAction />
+              <TransactionStatusLabel className="text-sm text-[var(--app-foreground-muted)] mt-2" />
+              <TransactionStatusAction className="mt-2" />
             </TransactionStatus>
           </Transaction>
+        ) : (
+          <div className="w-full py-4 px-6 rounded-xl font-bold text-white bg-gradient-to-r from-green-500 to-emerald-600 text-center">
+            <div className="flex items-center justify-center space-x-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Content Unlocked</span>
+            </div>
+          </div>
         )}
+        
+        {/* Additional metadata */}
+        <div className="flex justify-between items-center text-xs text-[var(--app-foreground-muted)]">
+          <div className="flex items-center space-x-1">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Blockchain Verified</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span>IPFS Secured</span>
+          </div>
+        </div>
       </div>
     </div>
   );
